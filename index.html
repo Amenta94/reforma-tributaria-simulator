@@ -517,6 +517,13 @@ table.t tr.sel td{background:var(--accent-bg)}
 
 .sitlink{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:4px;border-radius:999px}.sitlink .ico{width:12px;height:12px;opacity:0;transition:opacity .15s}.sitlink:hover .ico,.sitlink:focus-visible .ico{opacity:.8}.sitlink:hover .badge{filter:brightness(1.15);outline:1px solid currentColor}
 
+#busy{position:fixed;inset:0;z-index:9000;display:none;align-items:flex-start;justify-content:center;padding-top:22vh;background:rgba(5,12,18,.35);backdrop-filter:blur(1.5px)}
+#busy.on{display:flex}
+#busy .busy-box{display:flex;gap:14px;align-items:center;max-width:440px;background:var(--panel,#0f1d27);color:var(--text);border:1px solid var(--accent);border-radius:12px;padding:16px 18px;box-shadow:0 12px 40px rgba(0,0,0,.35)}
+#busy .busy-box b{display:block;margin-bottom:2px}#busy .busy-box span{font-size:12.5px;color:var(--muted)}
+#busy .spin{width:22px;height:22px;flex:none;border-radius:50%;border:2.5px solid var(--accent-bg,rgba(43,196,174,.2));border-top-color:var(--accent);animation:busyspin .8s linear infinite}
+@keyframes busyspin{to{transform:rotate(360deg)}}
+
 </style>
 <link rel="manifest" href="manifest.webmanifest"><meta name="theme-color" content="#0b1a24"><link rel="apple-touch-icon" href="icon-192.png"></head>
 <body>
@@ -1319,8 +1326,9 @@ table.t tr.sel td{background:var(--accent-bg)}
    * sem C170 (saídas próprias) usa os itens do XML da mesma chave; sem XML, cai no C190 (sem NCM/produto).
    * Também inclui D190 (CT-e). Retorna { rows, cobertura }.
    */
-  function efdOperacoesCompletas(efds, store) {
-    const rows = []; const cob = { c170: 0, xml: 0, c190: 0, d190: 0, docsSemDetalhe: [] };
+  function efdOperacoesCompletas(efds, store, cx) {
+    const rows = []; const cob = { c170: 0, xml: 0, contrib: 0, rateio: 0, c190: 0, d190: 0, docsSemDetalhe: [] };
+    const CX = cx && cx.n ? cx : null; const RC = (typeof root !== 'undefined' ? root : globalThis).RTS_CONTRIB;
     const xi = new Map(); if (store) for (const it of store.items) { if (!xi.has(it.chave)) xi.set(it.chave, []); xi.get(it.chave).push(it); }
     for (const R of efds) {
       const c170 = new Map(); for (const it of R.items) { if (!c170.has(it.docId)) c170.set(it.docId, []); c170.get(it.docId).push(it); }
@@ -1335,9 +1343,18 @@ table.t tr.sel td{background:var(--accent-bg)}
         } else if (xs && xs.length) {
           const own = d.IND_EMIT === '0';
           for (const it of xs) { rows.push(Object.assign({}, base, { fonte: 'XML vinculado', ncm: it.NCM, cfop: own ? it.CFOP : cfopEspelho(it.CFOP), cst: it.CST || it.CSOSN, aliq: it.pICMS, produto: it.cProd, descricao: it.xProd, qtd: it.qCom, unid: it.uCom, vItem: it.vProd, vDesc: it.vDesc, vFrete: it.vFrete, vOutro: it.vOutro, vBC: it.vBC, vICMS: it.vICMS, vST: it.vICMSST, vIPI: it.vIPI, vPIS: it.vPIS, vCOFINS: it.vCOFINS, vIBS: it.vIBSUF + it.vIBSMun, vCBS: it.vCBS, cClassTrib: it.cClassTrib })); cob.xml += it.vProd; }
+        } else if (CX && d.CHV_NFE && CX.porChave.has(d.CHV_NFE)) {
+          for (const r of RC.linhasDoc(CX.porChave.get(d.CHV_NFE), base)) { rows.push(r); cob.contrib += r.vItem || 0; }
         } else {
-          for (const a of (c190.get(d.id) || [])) { rows.push(Object.assign({}, base, { fonte: 'C190 (sem item)', ncm: '(sem XML)', cfop: a.CFOP, cst: a.CST_ICMS, aliq: a.ALIQ_ICMS, produto: '(sem XML)', descricao: '', vItem: a.VL_OPR, vBC: a.VL_BC_ICMS, vICMS: a.VL_ICMS, vST: a.VL_ICMS_ST, vIPI: a.VL_IPI })); cob.c190 += a.VL_OPR; }
-          cob.docsSemDetalhe.push({ chave: d.CHV_NFE, numero: d.NUM_DOC, serie: d.SER, data: d.DT_DOC, dir: d.IND_OPER === '1' ? 'S' : 'E', emissao: base.emissao, partNome: d.PART_NOME, vDoc: d.VL_DOC, efd: R.file });
+          const rat = CX && d.IND_OPER === '1' && d.IND_EMIT === '0';
+          let semRateio = false;
+          for (const a of (c190.get(d.id) || [])) {
+            const lista = rat ? CX.rateio.get(estab + '|' + (d.DT_DOC || d.DT_E_S || '').slice(0, 7) + '|' + a.CFOP) : null;
+            const rr = lista && lista.length ? RC.linhasRateio(lista, a, base) : null;
+            if (rr) { for (const r of rr) rows.push(r); cob.rateio += a.VL_OPR; continue; }
+            semRateio = true;
+            rows.push(Object.assign({}, base, { fonte: 'C190 (sem item)', ncm: '(sem XML)', cfop: a.CFOP, cst: a.CST_ICMS, aliq: a.ALIQ_ICMS, produto: '(sem XML)', descricao: '', vItem: a.VL_OPR, vBC: a.VL_BC_ICMS, vICMS: a.VL_ICMS, vST: a.VL_ICMS_ST, vIPI: a.VL_IPI })); cob.c190 += a.VL_OPR; }
+          if (semRateio) cob.docsSemDetalhe.push({ chave: d.CHV_NFE, numero: d.NUM_DOC, serie: d.SER, data: d.DT_DOC, dir: d.IND_OPER === '1' ? 'S' : 'E', emissao: base.emissao, partNome: d.PART_NOME, vDoc: d.VL_DOC, efd: R.file });
         }
       }
       for (const a of R.d190) {
@@ -1494,6 +1511,208 @@ table.t tr.sel td{background:var(--accent-bg)}
   }
 
   root.RTS = { packProject, unpackProject, PROJ_FORMAT, Dec, chaveValida, cnpjValido, cpfValido, mod11, efdDate, hashStr, uid, parseNFe, XmlStore, parseEFD, efdSummary, LAYOUT, BLOCKS, BLOCK_NAMES, COD_SIT, SIT_REGULAR, UF_IBGE, xmlDirecao, detectEmpresa, xmlOperacoes, efdOperacoesItens, efdOperacoesC190, efdOperacoesCompletas, xmlGrupos190, consolidar, cruzar, cfopEspelho, MONEY_KEYS, onlyDigits };
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+/* =========================================================================
+ * EFD-Contribuições (PIS/COFINS) — leitura e integração ao simulador.
+ * Leiaute conferido no Guia Prático da EFD-Contribuições (registros 0000, 0140,
+ * 0150, 0200, A010/A100/A170, C010/C100/C170, C180/C181/C185, D010/D100/D101/D105).
+ * Usos:
+ *  - C100/C170: detalha por item (NCM, CFOP, PIS/COFINS) documentos que na EFD ICMS/IPI só têm C190;
+ *  - C180/C181/C185: vendas consolidadas por item → distribuem o C190 por NCM (estab × mês × CFOP);
+ *  - A100/A170: serviços prestados e tomados (NFS-e), não escriturados na EFD ICMS/IPI;
+ *  - D100/D101/D105: CT-e tomados com crédito que não estejam na EFD ICMS/IPI nem no XML.
+ * ========================================================================= */
+(function (root) {
+  'use strict';
+  const RTS = root.RTS; const Dec = RTS.Dec;
+  const L = (s) => s.split(',');
+  const LAY = {
+    '0000': L('REG,COD_VER,TIPO_ESCRIT,IND_SIT_ESP,NUM_REC_ANTERIOR,DT_INI,DT_FIN,NOME,CNPJ,UF,COD_MUN,SUFRAMA,IND_NAT_PJ,IND_ATIV'),
+    '0140': L('REG,COD_EST,NOME,CNPJ,UF,IE,COD_MUN,IM,SUFRAMA'),
+    '0150': L('REG,COD_PART,NOME,COD_PAIS,CNPJ,CPF,IE,COD_MUN,SUFRAMA,END,NUM,COMPL,BAIRRO'),
+    '0200': L('REG,COD_ITEM,DESCR_ITEM,COD_BARRA,COD_ANT_ITEM,UNID_INV,TIPO_ITEM,COD_NCM,EX_IPI,COD_GEN,COD_LST,ALIQ_ICMS'),
+    A100: L('REG,IND_OPER,IND_EMIT,COD_PART,COD_SIT,SER,SUB,NUM_DOC,CHV_NFSE,DT_DOC,DT_EXE_SERV,VL_DOC,IND_PGTO,VL_DESC,VL_BC_PIS,VL_PIS,VL_BC_COFINS,VL_COFINS,VL_PIS_RET,VL_COFINS_RET,VL_ISS'),
+    A170: L('REG,NUM_ITEM,COD_ITEM,DESCR_COMPL,VL_ITEM,VL_DESC,NAT_BC_CRED,IND_ORIG_CRED,CST_PIS,VL_BC_PIS,ALIQ_PIS,VL_PIS,CST_COFINS,VL_BC_COFINS,ALIQ_COFINS,VL_COFINS,COD_CTA,COD_CCUS'),
+    C100: L('REG,IND_OPER,IND_EMIT,COD_PART,COD_MOD,COD_SIT,SER,NUM_DOC,CHV_NFE,DT_DOC,DT_E_S,VL_DOC,IND_PGTO,VL_DESC,VL_ABAT_NT,VL_MERC,IND_FRT,VL_FRT,VL_SEG,VL_OUT_DA,VL_BC_ICMS,VL_ICMS,VL_BC_ICMS_ST,VL_ICMS_ST,VL_IPI,VL_PIS,VL_COFINS,VL_PIS_ST,VL_COFINS_ST'),
+    C170: L('REG,NUM_ITEM,COD_ITEM,DESCR_COMPL,QTD,UNID,VL_ITEM,VL_DESC,IND_MOV,CST_ICMS,CFOP,COD_NAT,VL_BC_ICMS,ALIQ_ICMS,VL_ICMS,VL_BC_ICMS_ST,ALIQ_ST,VL_ICMS_ST,IND_APUR,CST_IPI,COD_ENQ,VL_BC_IPI,ALIQ_IPI,VL_IPI,CST_PIS,VL_BC_PIS,ALIQ_PIS,QUANT_BC_PIS,ALIQ_PIS_QUANT,VL_PIS,CST_COFINS,VL_BC_COFINS,ALIQ_COFINS,QUANT_BC_COFINS,ALIQ_COFINS_QUANT,VL_COFINS,COD_CTA'),
+    C180: L('REG,COD_MOD,DT_DOC_INI,DT_DOC_FIN,COD_ITEM,COD_NCM,EX_IPI,VL_TOT_ITEM'),
+    C181: L('REG,CST_PIS,CFOP,VL_ITEM,VL_DESC,VL_BC_PIS,ALIQ_PIS,QUANT_BC_PIS,ALIQ_PIS_QUANT,VL_PIS,COD_CTA'),
+    C185: L('REG,CST_COFINS,CFOP,VL_ITEM,VL_DESC,VL_BC_COFINS,ALIQ_COFINS,QUANT_BC_COFINS,ALIQ_COFINS_QUANT,VL_COFINS,COD_CTA'),
+    D100: L('REG,IND_OPER,IND_EMIT,COD_PART,COD_MOD,COD_SIT,SER,SUB,NUM_DOC,CHV_CTE,DT_DOC,DT_A_P,TP_CTE,CHV_CTE_REF,VL_DOC,VL_DESC,IND_FRT,VL_SERV,VL_BC_ICMS,VL_ICMS,VL_NT,COD_INF,COD_CTA'),
+    D101: L('REG,IND_NAT_FRT,VL_ITEM,CST_PIS,NAT_BC_CRED,VL_BC_PIS,ALIQ_PIS,VL_PIS,COD_CTA'),
+    D105: L('REG,IND_NAT_FRT,VL_ITEM,CST_COFINS,NAT_BC_CRED,VL_BC_COFINS,ALIQ_COFINS,VL_COFINS,COD_CTA')
+  };
+  const ESTAB_REG = new Set(['A010', 'C010', 'D010', 'F010', 'I010', '1010']);
+
+  function decode(buf) {
+    if (typeof buf === 'string') return buf;
+    const u8 = new Uint8Array(buf);
+    try { return new TextDecoder('utf-8', { fatal: true }).decode(u8); } catch (e) { return new TextDecoder('windows-1252').decode(u8); }
+  }
+  const campos = (line) => line.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|');
+
+  /** É EFD-Contribuições? (0000 com DT_INI no campo 06; na EFD ICMS/IPI a data vem no campo 04). */
+  function detectar(input) {
+    const txt = typeof input === 'string' ? input.slice(0, 4000) : decode(input.slice ? input.slice(0, 4000) : input);
+    const first = txt.split(/\r?\n/).find(l => l.trim()); if (!first) return false;
+    const f = campos(first); if ((f[0] || '').toUpperCase() !== '0000') return false;
+    if (/^\d{8}$/.test(f[3] || '')) return false; // EFD ICMS/IPI: |0000|COD_VER|COD_FIN|DT_INI|...
+    return /^\d{8}$/.test(f[5] || '') && /^\d{8}$/.test(f[6] || '');
+  }
+
+  const tick = () => new Promise(r => setTimeout(r, 0));
+  const dt = (s) => RTS.efdDate(s);
+  const cents = (s) => Dec.cents(s || '0') || 0;
+
+  /** Lê o TXT da EFD-Contribuições. Retorna um objeto compacto, por estabelecimento. */
+  async function parse(input, fileName, opts) {
+    opts = opts || {};
+    const text = decode(input); const lines = text.split(/\r?\n/);
+    const C = { id: RTS.uid('efc'), tipo: 'contrib', file: fileName, header: null, estabs: {}, part: {}, prod: {}, docs: [], c180: [], a100: [], d100: [], counts: {}, avisos: [], linhas: 0 };
+    let est = '', est0140 = '', doc = null, c180 = null, a100 = null, d100 = null;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]; if (!line.trim()) continue;
+      C.linhas++;
+      if (opts.onProgress && (C.linhas & 16383) === 0) { opts.onProgress(i / lines.length); await tick(); }
+      const f = campos(line); const reg = (f[0] || '').toUpperCase();
+      C.counts[reg] = (C.counts[reg] || 0) + 1;
+      const lay = LAY[reg]; const g = (n) => { if (!lay) return ''; const ix = lay.indexOf(n); return ix >= 0 ? (f[ix] || '').trim() : ''; };
+      if (ESTAB_REG.has(reg)) { est = f[1] || ''; doc = c180 = a100 = d100 = null; continue; }
+      if (/^[A-Z0-9]001$|^[A-Z0-9]990$/.test(reg)) { doc = c180 = a100 = d100 = null; if (reg[0] !== '0') est = reg.endsWith('990') ? '' : est; continue; }
+      switch (reg) {
+        case '0000': C.header = { DT_INI: dt(g('DT_INI')), DT_FIN: dt(g('DT_FIN')), NOME: g('NOME'), CNPJ: g('CNPJ'), UF: g('UF'), COD_VER: g('COD_VER'), TIPO_ESCRIT: g('TIPO_ESCRIT') }; break;
+        case '0140': est0140 = g('CNPJ'); C.estabs[est0140] = { CNPJ: est0140, NOME: g('NOME'), UF: g('UF'), COD_EST: g('COD_EST') }; break;
+        case '0150': { const mun = g('COD_MUN'), pais = g('COD_PAIS'); C.part[g('COD_PART')] = { NOME: g('NOME'), DOC: g('CNPJ') || g('CPF'), UF: pais && !/^0?1058$/.test(pais) ? 'EX' : (RTS.UF_IBGE[mun.slice(0, 2)] || '') }; break; }
+        case '0200': C.prod[g('COD_ITEM')] = { DESCR: g('DESCR_ITEM'), NCM: g('COD_NCM'), TIPO: g('TIPO_ITEM'), LST: g('COD_LST'), est: est0140 }; break;
+        case 'C100': {
+          doc = { estab: est, IND_OPER: g('IND_OPER'), IND_EMIT: g('IND_EMIT'), COD_PART: g('COD_PART'), COD_MOD: g('COD_MOD'), COD_SIT: g('COD_SIT'), SER: g('SER'), NUM_DOC: g('NUM_DOC'), CHV_NFE: g('CHV_NFE'), DT_DOC: dt(g('DT_DOC')), DT_E_S: dt(g('DT_E_S')), VL_DOC: cents(g('VL_DOC')), VL_ICMS: cents(g('VL_ICMS')), VL_IPI: cents(g('VL_IPI')), VL_PIS: cents(g('VL_PIS')), VL_COFINS: cents(g('VL_COFINS')), itens: [], line: C.linhas };
+          C.docs.push(doc); break;
+        }
+        case 'C170': if (doc) doc.itens.push({ NUM_ITEM: g('NUM_ITEM'), COD_ITEM: g('COD_ITEM'), DESCR: g('DESCR_COMPL'), QTD: Dec.num(g('QTD')) || 0, UNID: g('UNID'), VL_ITEM: cents(g('VL_ITEM')), VL_DESC: cents(g('VL_DESC')), CST_ICMS: g('CST_ICMS'), CFOP: g('CFOP'), VL_BC_ICMS: cents(g('VL_BC_ICMS')), ALIQ_ICMS: Dec.num(g('ALIQ_ICMS')) || 0, VL_ICMS: cents(g('VL_ICMS')), VL_ICMS_ST: cents(g('VL_ICMS_ST')), VL_IPI: cents(g('VL_IPI')), CST_PIS: g('CST_PIS'), VL_PIS: cents(g('VL_PIS')), CST_COFINS: g('CST_COFINS'), VL_COFINS: cents(g('VL_COFINS')) }); break;
+        case 'C180': c180 = { estab: est, COD_MOD: g('COD_MOD'), DT_INI: dt(g('DT_DOC_INI')), DT_FIN: dt(g('DT_DOC_FIN')), COD_ITEM: g('COD_ITEM'), NCM: g('COD_NCM'), VL_TOT: cents(g('VL_TOT_ITEM')), pis: [], cof: [] }; C.c180.push(c180); break;
+        case 'C181': if (c180) c180.pis.push({ CST: g('CST_PIS'), CFOP: g('CFOP'), VL_ITEM: cents(g('VL_ITEM')), VL_DESC: cents(g('VL_DESC')), VL: cents(g('VL_PIS')) }); break;
+        case 'C185': if (c180) c180.cof.push({ CST: g('CST_COFINS'), CFOP: g('CFOP'), VL_ITEM: cents(g('VL_ITEM')), VL_DESC: cents(g('VL_DESC')), VL: cents(g('VL_COFINS')) }); break;
+        case 'A100': a100 = { estab: est, IND_OPER: g('IND_OPER'), IND_EMIT: g('IND_EMIT'), COD_PART: g('COD_PART'), COD_SIT: g('COD_SIT'), SER: g('SER'), NUM_DOC: g('NUM_DOC'), CHV: g('CHV_NFSE'), DT_DOC: dt(g('DT_DOC')), DT_EXE: dt(g('DT_EXE_SERV')), VL_DOC: cents(g('VL_DOC')), VL_DESC: cents(g('VL_DESC')), VL_PIS: cents(g('VL_PIS')), VL_COFINS: cents(g('VL_COFINS')), VL_ISS: cents(g('VL_ISS')), itens: [] }; C.a100.push(a100); break;
+        case 'A170': if (a100) a100.itens.push({ NUM_ITEM: g('NUM_ITEM'), COD_ITEM: g('COD_ITEM'), DESCR: g('DESCR_COMPL'), VL_ITEM: cents(g('VL_ITEM')), VL_DESC: cents(g('VL_DESC')), NAT_BC_CRED: g('NAT_BC_CRED'), CST_PIS: g('CST_PIS'), VL_PIS: cents(g('VL_PIS')), CST_COFINS: g('CST_COFINS'), VL_COFINS: cents(g('VL_COFINS')) }); break;
+        case 'D100': d100 = { estab: est, IND_OPER: g('IND_OPER'), IND_EMIT: g('IND_EMIT'), COD_PART: g('COD_PART'), COD_MOD: g('COD_MOD'), COD_SIT: g('COD_SIT'), SER: g('SER'), NUM_DOC: g('NUM_DOC'), CHV_CTE: g('CHV_CTE'), DT_DOC: dt(g('DT_DOC')), DT_A_P: dt(g('DT_A_P')), VL_DOC: cents(g('VL_DOC')), VL_DESC: cents(g('VL_DESC')), VL_SERV: cents(g('VL_SERV')), VL_ICMS: cents(g('VL_ICMS')), pis: [], cof: [] }; C.d100.push(d100); break;
+        case 'D101': if (d100) d100.pis.push({ VL_ITEM: cents(g('VL_ITEM')), CST: g('CST_PIS'), NAT: g('NAT_BC_CRED'), VL: cents(g('VL_PIS')) }); break;
+        case 'D105': if (d100) d100.cof.push({ VL_ITEM: cents(g('VL_ITEM')), CST: g('CST_COFINS'), NAT: g('NAT_BC_CRED'), VL: cents(g('VL_COFINS')) }); break;
+        default: break;
+      }
+    }
+    if (!C.header) return C;
+    if (!Object.keys(C.estabs).length && C.header.CNPJ) C.estabs[C.header.CNPJ] = { CNPJ: C.header.CNPJ, NOME: C.header.NOME, UF: C.header.UF };
+    const nC170 = C.docs.reduce((t, d) => t + d.itens.length, 0);
+    C.resumo = { c100: C.docs.length, c170: nC170, c100SemItem: C.docs.filter(d => !d.itens.length && SIT.has(d.COD_SIT)).length, c180: C.c180.length, a100: C.a100.length, a170: C.a100.reduce((t, d) => t + d.itens.length, 0), d100: C.d100.length };
+    if (!nC170 && !C.c180.length && !C.a100.length && !C.d100.length) C.avisos.push('O arquivo não traz C170, C180, A100 nem D100: nada a acrescentar à simulação.');
+    return C;
+  }
+
+  const SIT = RTS.SIT_REGULAR;
+  const mesDe = (d) => (d || '').slice(0, 7);
+
+  /** Índices usados pelo motor de operações da EFD ICMS/IPI. */
+  function indice(contribs) {
+    const porChave = new Map(), rateio = new Map(); const cob = new Set();
+    for (const C of contribs || []) {
+      const prod = C.prod, part = C.part;
+      for (const d of C.docs) {
+        if (!SIT.has(d.COD_SIT) || !d.CHV_NFE || !d.itens.length) continue;
+        porChave.set(d.CHV_NFE, { C, d, prod, part });
+      }
+      for (const c of C.c180) {
+        const mes = mesDe(c.DT_INI || (C.header && C.header.DT_INI)); const p = prod[c.COD_ITEM] || {};
+        const ncm = /^\d{8}$/.test(c.NCM) ? c.NCM : (p.NCM || '');
+        const cofBy = new Map(); for (const x of c.cof) cofBy.set(x.CFOP, (cofBy.get(x.CFOP) || 0) + x.VL);
+        const porCfop = new Map(); for (const x of c.pis) { const o = porCfop.get(x.CFOP) || { vItem: 0, vDesc: 0, vPis: 0 }; o.vItem += x.VL_ITEM; o.vDesc += x.VL_DESC; o.vPis += x.VL; porCfop.set(x.CFOP, o); }
+        for (const [cfop, o] of porCfop) {
+          const k = c.estab + '|' + mes + '|' + cfop; if (!rateio.has(k)) rateio.set(k, []);
+          rateio.get(k).push({ ncm, cod: c.COD_ITEM, descr: p.DESCR || '', vItem: o.vItem, vPis: o.vPis, vCofins: cofBy.get(cfop) || 0, file: C.file });
+        }
+      }
+      for (const e of Object.keys(C.estabs)) cob.add(e + '|' + mesDe(C.header && C.header.DT_INI));
+    }
+    return { porChave, rateio, cob, n: (contribs || []).length };
+  }
+
+  /** Itens da EFD-Contribuições de um C100 (já indexado) no formato de linha de operação. */
+  function linhasDoc(x, base, cfopEspelho) {
+    const { C, d, prod } = x; const out = [];
+    for (const it of d.itens) {
+      const p = prod[it.COD_ITEM] || {};
+      out.push(Object.assign({}, base, { fonte: 'C170 (EFD-Contribuições)', efdContrib: C.file, ncm: p.NCM || '(sem NCM no 0200)', cfop: it.CFOP, cst: it.CST_ICMS, aliq: it.ALIQ_ICMS, produto: it.COD_ITEM, descricao: it.DESCR || p.DESCR || '', qtd: it.QTD, unid: it.UNID, vItem: it.VL_ITEM, vDesc: it.VL_DESC, vBC: it.VL_BC_ICMS, vICMS: it.VL_ICMS, vST: it.VL_ICMS_ST, vIPI: it.VL_IPI, vPIS: it.VL_PIS, vCOFINS: it.VL_COFINS, cstPis: it.CST_PIS, cstCofins: it.CST_COFINS }));
+    }
+    return out;
+  }
+
+  /** Divide um valor em centavos proporcionalmente aos pesos (soma exata). */
+  function dividir(total, pesos) {
+    const T = pesos.reduce((a, b) => a + b, 0); if (!T) return pesos.map(() => 0);
+    let acc = 0; return pesos.map((w, i) => { if (i === pesos.length - 1) return total - acc; const v = Math.round(total * w / T); acc += v; return v; });
+  }
+
+  /** C190 de saída própria → linhas por NCM, na proporção das vendas consolidadas no C180/C181 (mesmo estab × mês × CFOP). */
+  function linhasRateio(lista, a, base) {
+    const pesos = lista.map(x => x.vItem); const T = pesos.reduce((s, v) => s + v, 0); if (!T) return null;
+    const f = (tot) => dividir(tot || 0, pesos);
+    const vI = f(a.VL_OPR), vBC = f(a.VL_BC_ICMS), vIC = f(a.VL_ICMS), vST = f(a.VL_ICMS_ST), vIPI = f(a.VL_IPI);
+    const fr = (a.VL_OPR || 0) / T; // fração das vendas consolidadas que este C190 representa
+    return lista.map((x, i) => Object.assign({}, base, { fonte: 'C190 rateado por C180 (EFD-Contribuições)', efdContrib: x.file, rateado: true, ncm: x.ncm || '(sem NCM)', cfop: a.CFOP, cst: a.CST_ICMS, aliq: a.ALIQ_ICMS, produto: x.cod, descricao: x.descr, vItem: vI[i], vBC: vBC[i], vICMS: vIC[i], vST: vST[i], vIPI: vIPI[i], vPIS: Math.round(x.vPis * fr), vCOFINS: Math.round(x.vCofins * fr) }));
+  }
+
+  /**
+   * Linhas que a EFD-Contribuições acrescenta além do que já foi enriquecido:
+   *  serviços (A100/A170), CT-e tomados (D100) e — para estabelecimento × mês sem EFD ICMS/IPI — C100/C170 e C180.
+   * ctx: { efdCob:Set('cnpj|aaaa-mm'), cteChaves:Set, nfseChaves:Set, docChaves:Set }
+   */
+  function linhasExtras(contribs, ctx) {
+    const rows = []; const cob = { servicos: 0, cte: 0, isolado: 0, c180: 0 };
+    for (const C of contribs || []) {
+      const partOf = (cod) => C.part[cod] || {};
+      for (const d of C.a100) {
+        if (!SIT.has(d.COD_SIT)) continue;
+        if (d.CHV && ctx.nfseChaves && ctx.nfseChaves.has(d.CHV)) continue;
+        const pt = partOf(d.COD_PART); const dir = d.IND_OPER === '1' ? 'S' : 'E'; const data = d.DT_DOC || d.DT_EXE;
+        const base = { efd: C.file, efdContrib: C.file, estab: d.estab, docId: C.id + ':A:' + d.NUM_DOC + ':' + d.COD_PART, chave: d.CHV || '', data, mes: mesDe(data), dir, emissao: d.IND_EMIT === '0' ? 'Própria' : 'Terceiros', numero: d.NUM_DOC, serie: d.SER, modelo: 'NFS-e', partDoc: pt.DOC || '', partNome: pt.NOME || '', partUF: pt.UF || '', tipo: 'servico', tipoDoc: 'NFSe', natureza: dir === 'S' ? 'servico' : 'compra' };
+        const its = d.itens.length ? d.itens : [{ COD_ITEM: '', DESCR: '', VL_ITEM: d.VL_DOC, VL_DESC: d.VL_DESC, VL_PIS: d.VL_PIS, VL_COFINS: d.VL_COFINS }];
+        const iss = dividir(d.VL_ISS, its.map(x => x.VL_ITEM || 0));
+        its.forEach((it, i) => { const p = C.prod[it.COD_ITEM] || {}; rows.push(Object.assign({}, base, { fonte: 'A170 (EFD-Contribuições)', ncm: '(serviço — NFS-e)', nbs: '', cServ: p.LST || '', cfop: '', produto: it.COD_ITEM, descricao: it.DESCR || p.DESCR || 'Serviço (NFS-e)', vItem: it.VL_ITEM, vDesc: it.VL_DESC, vISS: iss[i], vICMS: 0, vBC: 0, vST: 0, vIPI: 0, vPIS: it.VL_PIS, vCOFINS: it.VL_COFINS, cstPis: it.CST_PIS, cstCofins: it.CST_COFINS })); cob.servicos += it.VL_ITEM || 0; });
+      }
+      for (const d of C.d100) {
+        if (!SIT.has(d.COD_SIT)) continue;
+        if (d.CHV_CTE && ctx.cteChaves && ctx.cteChaves.has(d.CHV_CTE)) continue;
+        const pt = partOf(d.COD_PART); const data = d.DT_A_P || d.DT_DOC;
+        const vItem = d.pis.reduce((t, x) => t + x.VL_ITEM, 0) || d.VL_SERV || d.VL_DOC;
+        rows.push({ fonte: 'D100 (EFD-Contribuições)', efd: C.file, efdContrib: C.file, estab: d.estab, docId: C.id + ':D:' + d.NUM_DOC + ':' + d.COD_PART, chave: d.CHV_CTE, data, mes: mesDe(data), dir: 'E', emissao: 'Terceiros', numero: d.NUM_DOC, serie: d.SER, modelo: d.COD_MOD, partDoc: pt.DOC || '', partNome: pt.NOME || '', partUF: pt.UF || '', tipo: 'servico', tipoDoc: 'CTe', natureza: 'compra', ncm: '(serviço de transporte)', produto: '(CT-e)', descricao: 'Serviço de transporte (CT-e)', cfop: '', vItem, vICMS: d.VL_ICMS, vBC: 0, vST: 0, vIPI: 0, vPIS: d.pis.reduce((t, x) => t + x.VL, 0), vCOFINS: d.cof.reduce((t, x) => t + x.VL, 0) });
+        cob.cte += vItem;
+      }
+      // Estabelecimento × mês sem EFD ICMS/IPI: a EFD-Contribuições vira a fonte das mercadorias
+      const semIcms = (estab, data) => !ctx.efdCob || !ctx.efdCob.has(estab + '|' + mesDe(data || (C.header && C.header.DT_INI)));
+      for (const d of C.docs) {
+        if (!SIT.has(d.COD_SIT) || !d.itens.length || !semIcms(d.estab, d.DT_DOC)) continue;
+        if (d.CHV_NFE && ctx.docChaves && ctx.docChaves.has(d.CHV_NFE)) continue;
+        const pt = partOf(d.COD_PART); const data = d.DT_E_S || d.DT_DOC;
+        const base = { efd: C.file, estab: d.estab, docId: C.id + ':C:' + d.line, chave: d.CHV_NFE, data, mes: mesDe(data), dir: d.IND_OPER === '1' ? 'S' : 'E', emissao: d.IND_EMIT === '0' ? 'Própria' : 'Terceiros', numero: d.NUM_DOC, serie: d.SER, modelo: d.COD_MOD, partDoc: pt.DOC || '', partNome: pt.NOME || '', partUF: pt.UF || '' };
+        for (const r of linhasDoc({ C, d, prod: C.prod }, base)) { rows.push(r); cob.isolado += r.vItem || 0; }
+      }
+      for (const c of C.c180) {
+        if (!semIcms(c.estab, c.DT_INI)) continue;
+        const p = C.prod[c.COD_ITEM] || {}; const ncm = /^\d{8}$/.test(c.NCM) ? c.NCM : (p.NCM || '(sem NCM)');
+        const cofBy = new Map(); for (const x of c.cof) cofBy.set(x.CFOP + '|' + x.CST, (cofBy.get(x.CFOP + '|' + x.CST) || 0) + x.VL);
+        c.pis.forEach((x, i) => {
+          const data = c.DT_FIN || c.DT_INI;
+          rows.push({ fonte: 'C180 consolidado (EFD-Contribuições)', efd: C.file, efdContrib: C.file, estab: c.estab, docId: C.id + ':C180:' + c.COD_ITEM + ':' + i, chave: '', data, mes: mesDe(data), dir: 'S', emissao: 'Própria', numero: '(consolidado)', modelo: c.COD_MOD, partDoc: '', partNome: '(vendas consolidadas)', partUF: '', ncm, cfop: x.CFOP, cst: '', aliq: 0, produto: c.COD_ITEM, descricao: p.DESCR || '', vItem: x.VL_ITEM, vDesc: x.VL_DESC, vICMS: 0, vBC: 0, vST: 0, vIPI: 0, vPIS: x.VL, vCOFINS: cofBy.get(x.CFOP + '|' + x.CST) || 0, semIcms: true });
+          cob.c180 += x.VL_ITEM;
+        });
+      }
+    }
+    return { rows, cob };
+  }
+
+  root.RTS_CONTRIB = { LAY, detectar, parse, indice, linhasDoc, linhasRateio, linhasExtras, dividir };
 })(typeof window !== 'undefined' ? window : globalThis);
 
 </script>
@@ -2515,12 +2734,16 @@ table.t tr.sel td{background:var(--accent-bg)}
    */
   function simularLinha(row, opts) {
     const ano = opts.ano;
-    const P = RR.premissaAno(opts.premissas, ano);
+    const P = opts._P && opts._Pano === ano ? opts._P : RR.premissaAno(opts.premissas, ano);
     const nat = RR.naturezaRow(row);
     const sentido = row.dir === 'E' ? 'E' : 'S';
     const data = ano + (row.data ? row.data.slice(4) : '-06-30');
     const CLm = root.RTS_CLASS; const dst = opts.destinatario || (CLm ? CLm.contraparte(row, opts.fornecedores) : '*');
-    const cls = RR.classificar(opts.regras, { ncm: row.ncm && !/^\(/.test(row.ncm) ? row.ncm : '', nbs: row.nbs || '', servico: row.tipo === 'servico', natureza: nat, cfop: row.cfop, sentido, destinatario: dst, destinacao: opts.destinacao || row.destinacao || '*', data });
+    const cctx = { ncm: row.ncm && !/^\(/.test(row.ncm) ? row.ncm : '', nbs: row.nbs || '', servico: row.tipo === 'servico', natureza: nat, cfop: row.cfop, sentido, destinatario: dst, destinacao: opts.destinacao || row.destinacao || '*', data };
+    // Memória por simulação: operações com o mesmo contexto (NCM × CFOP × natureza × data × contraparte) recebem a mesma classificação
+    let cls; const memo = opts._memo;
+    if (memo) { const k = cctx.ncm + '|' + cctx.nbs + '|' + (cctx.servico ? 1 : 0) + '|' + nat + '|' + cctx.cfop + '|' + sentido + '|' + dst + '|' + cctx.destinacao + '|' + data; cls = memo.get(k); if (!cls) { cls = RR.classificar(opts.regras, cctx); memo.set(k, cls); } }
+    else cls = RR.classificar(opts.regras, cctx);
     const pp = papel(nat, row.dir);
     const transicao = ano <= 2032;
     // exclusões da base (art. 12, § 2º): ICMS/FCP e PIS/COFINS de 2026 a 2032; o ICMS acompanha a redução da transição
@@ -2564,10 +2787,32 @@ table.t tr.sel td{background:var(--accent-bg)}
   }
 
   /** Simula todas as linhas para um ano e agrega. */
+  /**
+   * Agrupa operações que o motor trata de forma idêntica (mesmo NCM/NBS, CFOP, natureza, sentido, data,
+   * contraparte/destinação e — nas entradas — fornecedor), somando os valores. Usado só nos totais
+   * (séries 2026–2033 e cenários): o resultado difere da soma linha a linha apenas por arredondamento de centavos.
+   */
+  const SOMA = ['vItem', 'vDesc', 'vFrete', 'vSeg', 'vOutro', 'vICMS', 'vST', 'vIPI', 'vPIS', 'vCOFINS', 'vISS', 'vBC'];
+  function agrupar(rows, vedados) {
+    const ved = vedados && Object.keys(vedados).length ? vedados : null;
+    const m = new Map(); const out = [];
+    for (const r of rows) {
+      if (ved && (ved[r.id] || ved[r.docId + '|' + r.ncm + '|' + r.vItem])) { out.push(r); continue; }
+      const e = r.dir === 'E';
+      const k = [r.ncm, r.nbs, r.tipo, r.tipoDoc, r.natureza, r.cfop, r.dir, r.data, e ? r.partDoc : '', r.destinacao, r.contraparte, r.tipoFornecedor, r.semCreditoAtual ? 1 : 0, r.fonte === 'C190 (sem item)' ? 1 : 0].join('|');
+      let g = m.get(k);
+      if (!g) { g = { ncm: r.ncm, nbs: r.nbs, tipo: r.tipo, tipoDoc: r.tipoDoc, natureza: r.natureza, cfop: r.cfop, dir: r.dir, data: r.data, partDoc: e ? r.partDoc : '', destinacao: r.destinacao, contraparte: r.contraparte, tipoFornecedor: r.tipoFornecedor, semCreditoAtual: r.semCreditoAtual, fonte: r.fonte, docId: 'grupo', _n: 0 }; for (const f of SOMA) g[f] = 0; m.set(k, g); out.push(g); }
+      g._n++; for (const f of SOMA) if (r[f]) g[f] += r[f];
+    }
+    return out;
+  }
+  /** Prepara as opções de uma simulação em lote: premissas do ano e memória de classificação calculadas uma vez. */
+  function prep(opts) { return opts._memo ? opts : Object.assign({}, opts, { _memo: new Map(), _P: RR.premissaAno(opts.premissas, opts.ano), _Pano: opts.ano }); }
   function simular(rows, opts) {
+    opts = prep(opts);
     const linhas = []; const T = { base: 0, cbsDeb: 0, ibsDeb: 0, ibsUFDeb: 0, ibsMunDeb: 0, cbsCred: 0, ibsCred: 0, cbsEstD: 0, ibsEstD: 0, cbsEstC: 0, ibsEstC: 0, isDeb: 0, baseDeb: 0, baseCred: 0, vendas: 0, compras: 0, diferido: 0, valorValidar: 0, valorNaoSimulado: 0, valorCondicional: 0, n: 0, ufDefinida: true };
     for (const r of rows) {
-      const s = simularLinha(r, opts); const L = Object.assign({}, r, s); linhas.push(L); T.n++;
+      const s = simularLinha(r, opts); const L = opts.totais ? {} : Object.assign(Object.create(r), s); /* herda os campos da operação, sem cópia */ if (!opts.totais) linhas.push(L); T.n++;
       if (s.ibsUF === null && !['nao_simulado', 'imune', 'nao_incidencia'].includes(s.papel) && s.tipo !== 'verificar') T.ufDefinida = false;
       { const st = root.RTS_CLASS ? root.RTS_CLASS.situacao(s) : { k: s.status === 'necessita_validacao' ? 'sem_base' : 'conferir' }; L.situacao = st.k; T.sit = T.sit || { confirmado: 0, conferir: 0, decidir: 0, sem_base: 0 }; T.sit[st.k] += r.vItem || 0; if (st.k === 'sem_base') T.valorValidar += r.vItem || 0; }
       if (s.condicional) T.valorCondicional += r.vItem || 0;
@@ -2600,7 +2845,7 @@ table.t tr.sel td{background:var(--accent-bg)}
     return out;
   }
 
-  root.RTS_SIM = { IS_RULES, isRule, isAliquota, papel, PAPEL_LBL, simularLinha, simular, conferirXml };
+  root.RTS_SIM = { IS_RULES, isRule, isAliquota, papel, PAPEL_LBL, simularLinha, simular, conferirXml, prep, agrupar };
 })(typeof window !== 'undefined' ? window : globalThis);
 
 </script>
@@ -2629,7 +2874,7 @@ table.t tr.sel td{background:var(--accent-bg)}
    * Compara uma linha. opts: { ano, cenario, regras, premissas, ibsMunPct, creditaIPI }
    */
   function compararLinha(row, opts) {
-    const ano = opts.ano; const P = RR.premissaAno(opts.premissas, ano);
+    const ano = opts.ano; const P = opts._P && opts._Pano === ano ? opts._P : RR.premissaAno(opts.premissas, ano);
     const nat = RR.naturezaRow(row); const papel = SM.papel(nat, row.dir);
     const A = atual(row);
     const v = row.vItem || 0;
@@ -2641,8 +2886,8 @@ table.t tr.sel td{background:var(--accent-bg)}
     if (opts.cenario === 'neutro') { const den = 1 - icmsAno - issAno - pcAno; vNovo = den > 0 ? r0(rl / den) : v; }
     const icmsN = r0(vNovo * icmsAno), issN = r0(vNovo * issAno), pcN = r0(vNovo * pcAno);
     const pisN = tPC ? r0(pcN * A.pis / (A.pis + A.cofins)) : 0, cofN = pcN - pisN;
-    const adj = Object.assign({}, row, { vItem: vNovo, vDesc: row.vDesc || 0, vICMS: icmsN, vISS: issN, vPIS: pisN, vCOFINS: cofN });
-    const s = SM.simularLinha(adj, { ano, regras: opts.regras, premissas: opts.premissas, ibsMunPct: opts.ibsMunPct, fornecedores: opts.fornecedores, destinatario: opts.destinatario, destinacao: opts.destinacao });
+    const adj = Object.create(row); adj.vItem = vNovo; adj.vDesc = row.vDesc || 0; adj.vICMS = icmsN; adj.vISS = issN; adj.vPIS = pisN; adj.vCOFINS = cofN; // herda o resto da linha sem copiar
+    const s = SM.simularLinha(adj, { ano, regras: opts.regras, premissas: opts.premissas, ibsMunPct: opts.ibsMunPct, fornecedores: opts.fornecedores, destinatario: opts.destinatario, destinacao: opts.destinacao, _memo: opts._memo, _P: opts._P, _Pano: opts._Pano });
     const teste = ano <= 2026; // CBS/IBS de 2026 compensáveis (art. 348) — não compõem a carga
     const N = { icms: icmsN, iss: issN, st: r0(A.st * P.icmsFator), ipi: ano <= 2026 ? A.ipi : 0, pis: pisN, cofins: cofN, cbs: teste ? 0 : s.cbs, ibs: teste ? 0 : s.ibs, is: s.vIS, cbsTeste: teste ? s.cbs : 0, ibsTeste: teste ? s.ibs : 0 };
     const somaA = A.icms + A.iss + A.st + A.ipi + A.pis + A.cofins;
@@ -2667,13 +2912,14 @@ table.t tr.sel td{background:var(--accent-bg)}
 
   /** Agrega o comparativo de todas as linhas. */
   function comparar(rows, opts) {
+    opts = SM.prep(opts);
     const linhas = [];
     const z = () => ({ icms: 0, iss: 0, st: 0, ipi: 0, pis: 0, cofins: 0, cbs: 0, ibs: 0, is: 0, cbsTeste: 0, ibsTeste: 0 });
     const T = { debA: z(), debN: z(), credA: z(), credN: z(), vendasA: 0, vendasN: 0, comprasA: 0, comprasN: 0, rlA: 0, rlN: 0, precoA: 0, precoN: 0, custoA: 0, custoN: 0, ignorado: 0, n: 0, validar: 0 };
     const addT = (dst, src, sinal) => { for (const k in dst) dst[k] += (src[k] || 0) * sinal; };
     for (const r of rows) {
-      const c = compararLinha(r, opts); const L = Object.assign({}, r, c); linhas.push(L); T.n++;
-      { const st = root.RTS_CLASS ? root.RTS_CLASS.situacao(c) : { k: c.status === 'necessita_validacao' ? 'sem_base' : 'conferir' }; L.situacao = st.k; T.sit = T.sit || { confirmado: 0, conferir: 0, decidir: 0, sem_base: 0 }; T.sit[st.k] += r.vItem || 0; if (st.k === 'sem_base') T.validar += r.vItem || 0; }
+      const c = compararLinha(r, opts); T.n++;
+      { const st = root.RTS_CLASS ? root.RTS_CLASS.situacao(c) : { k: c.status === 'necessita_validacao' ? 'sem_base' : 'conferir' }; if (!opts.totais) { const L = Object.assign(Object.create(r), c); L.situacao = st.k; linhas.push(L); } T.sit = T.sit || { confirmado: 0, conferir: 0, decidir: 0, sem_base: 0 }; T.sit[st.k] += r.vItem || 0; if (st.k === 'sem_base') T.validar += r.vItem || 0; }
       if (c.papel === 'debito' || c.papel === 'imune') { addT(T.debA, c.A, 1); addT(T.debN, c.N, 1); T.vendasA += c.vAtual; T.vendasN += c.vNovo; T.rlA += c.rlA; T.rlN += c.rlN; T.precoA += c.precoA; T.precoN += c.precoN; }
       else if (c.papel === 'estorno_debito') { addT(T.debA, c.A, -1); addT(T.debN, c.N, -1); T.vendasA -= c.vAtual; T.vendasN -= c.vNovo; T.rlA -= c.rlA; T.rlN -= c.rlN; }
       else if (c.papel === 'credito') { const ca = c.usoConsumo ? {} : { icms: c.A.icms, pis: c.A.pis, cofins: c.A.cofins, ipi: opts.creditaIPI ? c.A.ipi : 0 }; const cn = c.usoConsumo ? { cbs: c.N.cbs, ibs: c.N.ibs, cbsTeste: c.N.cbsTeste, ibsTeste: c.N.ibsTeste } : { icms: c.N.icms, pis: c.N.pis, cofins: c.N.cofins, ipi: opts.creditaIPI ? c.N.ipi : 0, cbs: c.N.cbs, ibs: c.N.ibs, cbsTeste: c.N.cbsTeste, ibsTeste: c.N.ibsTeste }; addT(T.credA, ca, 1); addT(T.credN, cn, 1); T.comprasA += c.vAtual; T.comprasN += c.vNovo; T.custoA += c.custoA; T.custoN += c.custoN; }
@@ -2750,7 +2996,7 @@ table.t tr.sel td{background:var(--accent-bg)}
     // serviço tomado de pessoa física: prestador autônomo não contribuinte (sem IBS/CBS a creditar), não produtor rural
     const tipoF = (opts.fornecedores || {})[row.partDoc] || row.tipoFornecedor || (row.tipo === 'servico' && fornecedorPadrao(row.partDoc) === 'produtor_nc' ? 'sem_credito' : fornecedorPadrao(row.partDoc));
     const cat = row.tipo === 'servico' ? (row.tipoDoc === 'CTe' || categoria(row.cfop) === 'transporte' ? 'transporte' : 'servico') : categoria(row.cfop);
-    const s = SM.simularLinha(row, { ano, regras: opts.regras, premissas: opts.premissas, fornecedores: opts.fornecedores });
+    const s = SM.simularLinha(row, { ano, regras: opts.regras, premissas: opts.premissas, fornecedores: opts.fornecedores, _memo: opts._memo, _P: opts._P, _Pano: opts._Pano });
     const destacado = s.cbs + s.ibs; // CBS/IBS que um fornecedor do regime regular destacaria
     const motivo = []; let status, cbs = 0, ibs = 0;
     const vedadoManual = opts.vedados && opts.vedados[row.id || (row.docId + '|' + row.ncm + '|' + row.vItem)];
@@ -2764,7 +3010,7 @@ table.t tr.sel td{background:var(--accent-bg)}
       const vo = row.vItem - (row.vDesc || 0);
       const cp = C ? Math.round(vo * C / (1 + C)) : 0;
       // repartição CBS/IBS proporcional às alíquotas do ano
-      const PA = RR.premissaAno(opts.premissas, ano); const tot = (PA.cbs + PA.ibs) || 1; cbs = Math.round(cp * PA.cbs / tot); ibs = cp - cbs;
+      const PA = opts._P && opts._Pano === ano ? opts._P : RR.premissaAno(opts.premissas, ano); const tot = (PA.cbs + PA.ibs) || 1; cbs = Math.round(cp * PA.cbs / tot); ibs = cp - cbs;
       status = 'presumido'; motivo.push(C ? 'Crédito presumido (art. 168): CP = VO × C ÷ (1 + C), C = ' + pc + '% (premissa).' : 'Crédito presumido (art. 168) — percentual de ' + ano + ' não publicado; informe a premissa. ' + RR.MSG_VALID);
     } else if (tipoF === 'simples') {
       const pc = Number(opts.simplesPct || 0);
@@ -2785,11 +3031,12 @@ table.t tr.sel td{background:var(--accent-bg)}
   }
 
   function creditos(rows, opts) {
+    opts = SM.prep(opts);
     const linhas = []; const T = { total: 0, porStatus: {}, porCategoria: {}, porFornecedorTipo: {}, comprasValor: 0, n: 0 };
     for (const r of rows) {
       if (r.dir !== 'E') continue;
       const c = creditoLinha(r, opts); if (c.status === 'sem_credito' && SM.papel(RR.naturezaRow(r), r.dir) !== 'credito') continue;
-      const L = Object.assign({}, r, c); linhas.push(L); T.n++; T.comprasValor += r.vItem || 0; T.total += c.credito;
+      if (!opts.totais) linhas.push(Object.assign(Object.create(r), c)); T.n++; T.comprasValor += r.vItem || 0; T.total += c.credito;
       T.porStatus[c.status] = (T.porStatus[c.status] || 0) + c.credito;
       T.porCategoria[c.categoria] = (T.porCategoria[c.categoria] || 0) + c.credito;
       T.porFornecedorTipo[c.tipoFornecedor] = (T.porFornecedorTipo[c.tipoFornecedor] || 0) + c.credito;
@@ -2907,8 +3154,9 @@ table.t tr.sel td{background:var(--accent-bg)}
     const meses = CP.mesesCobertos(rows); const anual = 12 / meses;
     const anos = [];
     for (const ano of (ctx.anos || ANOS)) {
-      const c = CP.comparar(rows, { ano, cenario: sc.cenarioPreco, creditaIPI: !!sc.creditaIPI, regras: ctx.regras, premissas, ibsMunPct: sc.ibsMunPct === '' ? null : Number(sc.ibsMunPct) });
-      const cr = CR.creditos(rows, { ano, regras: ctx.regras, premissas, fornecedores: ctx.fornecedores || {}, vedados: ctx.vedados || {}, presumidoPct: sc.presumidoPct === '' ? (ctx.presumidoPct || {}) : { [ano]: sc.presumidoPct }, simplesPct: sc.simplesPct === '' ? (ctx.simplesPct || 0) : sc.simplesPct });
+      const copts = { ano, cenario: sc.cenarioPreco, creditaIPI: !!sc.creditaIPI, regras: ctx.regras, premissas, ibsMunPct: sc.ibsMunPct === '' ? null : Number(sc.ibsMunPct) };
+      const c = CP.comparar(ctx.rowsTot || rows, Object.assign({ totais: true }, copts));
+      const cr = CR.creditos(ctx.rowsTot || rows, { totais: true, ano, regras: ctx.regras, premissas, fornecedores: ctx.fornecedores || {}, vedados: ctx.vedados || {}, presumidoPct: sc.presumidoPct === '' ? (ctx.presumidoPct || {}) : { [ano]: sc.presumidoPct }, simplesPct: sc.simplesPct === '' ? (ctx.simplesPct || 0) : sc.simplesPct });
       const g = fatorCrescimento(sc, ano) * anual; const m = (v) => Math.round(v * g);
       const T = c.T;
       const deb = T.debN.cbs + T.debN.ibs, debTeste = T.debN.cbsTeste + T.debN.ibsTeste;
@@ -2918,7 +3166,7 @@ table.t tr.sel td{background:var(--accent-bg)}
         vendas: m(T.vendasA), compras: m(T.comprasA), cbs: m(T.debN.cbs), ibs: m(T.debN.ibs), is: m(T.debN.is), debitos: m(deb + T.debN.is), debitosTeste: m(debTeste),
         creditosEst: m(T.credN.cbs + T.credN.ibs), creditosCred: m(cr.T.total), creditosStatus: Object.fromEntries(Object.entries(cr.T.porStatus).map(([k, v]) => [k, m(v)])),
         precoA: m(T.precoA), precoN: m(T.precoN), rlA: m(T.rlA), rlN: m(T.rlN), icmsN: m(T.debN.icms), validar: m(T.validar), sit: T.sit ? Object.fromEntries(Object.entries(T.sit).map(([k, v]) => [k, m(v)])) : null,
-        _cmp: c
+        _det: () => CP.comparar(rows, copts) // detalhe por linha só quando a tela pede (economia de memória)
       });
     }
     return { cenario: sc, premissas, meses, anualizacao: anual, anos };
@@ -3776,7 +4024,7 @@ table.t tr.sel td{background:var(--accent-bg)}
     await T('Cenários', 'CBS de referência alternativa não altera anos fixados em lei', () => { const P = SC.premissasCenario(SC.novoCenario({ cbsRef: 9.21 }), PR); return eq(RR.premissaAno(P, 2026).cbs, 0.9) && eq(RR.premissaAno(P, 2027).cbs, 9.11) && eq(RR.premissaAno(P, 2030).cbs, 9.21); });
     await T('Cenários', 'IBS de referência alternativa afeta só 2029+', () => { const P = SC.premissasCenario(SC.novoCenario({ ibsRef: 17 }), PR); return eq(RR.premissaAno(P, 2027).ibs, 0.1) && eq(RR.premissaAno(P, 2031).ibs, +(17 * 0.3).toFixed(4)); });
     await T('Cenários', 'Crescimento de volume composto a partir do ano-base', () => eq(SC.fatorCrescimento({ crescimentoPct: 10, anoBase: 2026 }, 2026), 1) && eq(+SC.fatorCrescimento({ crescimentoPct: 10, anoBase: 2026 }, 2028).toFixed(4), 1.21));
-    await T('Cenários', 'Execução projeta 2026–2033 anualizada e com crescimento', () => { const ops = R.efdOperacoesCompletas([efd], st).rows; const a = SC.executar(ops, SC.novoCenario({}), { regras, premissas: PR }); const b = SC.executar(ops, SC.novoCenario({ crescimentoPct: 10 }), { regras, premissas: PR }); return eq(a.anos.length, 8) && eq(a.anualizacao, 12) && eq(a.anos[0].liqA, a.anos[0]._cmp.T.liqA * 12) && eq(Math.abs(b.anos[2].liqA - Math.round(a.anos[2]._cmp.T.liqA * 12 * 1.21)) <= 1, true); });
+    await T('Cenários', 'Execução projeta 2026–2033 anualizada e com crescimento', () => { const ops = R.efdOperacoesCompletas([efd], st).rows; const a = SC.executar(ops, SC.novoCenario({}), { regras, premissas: PR }); const b = SC.executar(ops, SC.novoCenario({ crescimentoPct: 10 }), { regras, premissas: PR }); return eq(a.anos.length, 8) && eq(a.anualizacao, 12) && eq(a.anos[0].liqA, a.anos[0]._det().T.liqA * 12) && eq(Math.abs(b.anos[2].liqA - Math.round(a.anos[2]._det().T.liqA * 12 * 1.21)) <= 1, true); });
     await T('Cenários', 'Cenário com CBS menor reduz a CBS projetada', () => { const ops = R.efdOperacoesCompletas([efd], st).rows; const a = SC.executar(ops, SC.novoCenario({}), { regras, premissas: PR, anos: [2027] }); const b = SC.executar(ops, SC.novoCenario({ cbsRef: 9.21 }), { regras, premissas: PR, anos: [2027] }); return eq(b.anos[0].cbs < a.anos[0].cbs, true); });
     await T('Cenários', 'Marcos da transição em ordem cronológica e com fonte', () => eq(SC.MARCOS.every((m, i, a) => !i || a[i - 1].data <= m.data), true) && eq(SC.MARCOS.every(m => m.fonte), true));
 
@@ -3936,6 +4184,24 @@ table.t tr.sel td{background:var(--accent-bg)}
       await T('Situação', 'Regra conferida no texto oficial, sem condição, na tabela → Confirmado', () => eq(st({ regraId: 'X', status: 'validada_usuario', enq: 'sugerida', tabSit: 'importada' }), 'confirmado'));
     }
 
+    /* EFD-Contribuições */
+    if (root.RTS_CONTRIB) {
+      const RC = root.RTS_CONTRIB;
+      const txtC = ['|0000|006|0|||01102026|31102026|EMPRESA TESTE|11222333000181|SP|3550308||00|0|', '|0140||EMPRESA TESTE|11222333000181|SP||3550308|||', '|0200|P1|CARNE|||KG|00|02023000|||||', '|0200|P2|LINGUICA|||KG|00|16010000|||||',
+        '|C010|11222333000181|1|', '|C180|55|01102026|31102026|P1|02023000||600,00|', '|C181|01|5101|600,00|0,00|600,00|1,6500|||9,90||', '|C185|01|5101|600,00|0,00|600,00|7,6000|||45,60||',
+        '|C180|55|01102026|31102026|P2|16010000||400,00|', '|C181|01|5101|400,00|0,00|400,00|1,6500|||6,60||', '|C185|01|5101|400,00|0,00|400,00|7,6000|||30,40||',
+        '|A010|11222333000181|', '|A100|1|0||00|1||9||10102026|10102026|100,00|1|0,00|100,00|1,65|100,00|7,60|0,00|0,00|5,00|', '|A170|1|||100,00|0,00|||01|100,00|1,6500|1,65|01|100,00|7,6000|7,60|||'].join('\n');
+      await T('EFD-Contribuições', 'Reconhece o arquivo pelo 0000 e não confunde com a EFD ICMS/IPI', () => eq(RC.detectar(txtC), true) && eq(RC.detectar('|0000|020|0|01102026|31102026|X|11222333000181||SP|1|3550308|||A|0|'), false));
+      const C = await RC.parse(txtC, 'c.txt');
+      await T('EFD-Contribuições', 'Lê C180/C181/C185 e A100/A170 com o leiaute oficial', () => eq(C.c180.length, 2) && eq(C.c180[0].pis[0].VL, 990) && eq(C.c180[0].cof[0].VL, 4560) && eq(C.a100[0].VL_ISS, 500) && eq(C.a100[0].itens[0].VL_PIS, 165));
+      await T('EFD-Contribuições', 'Rateio do C190 por NCM fecha o valor exato', () => {
+        const X = RC.indice([C]); const lista = X.rateio.get('11222333000181|2026-10|5101');
+        const rows = RC.linhasRateio(lista, { CFOP: '5101', CST_ICMS: '000', ALIQ_ICMS: 18, VL_OPR: 100001, VL_BC_ICMS: 100001, VL_ICMS: 18000, VL_ICMS_ST: 0, VL_IPI: 0 }, {});
+        return eq(rows.length, 2) && eq(rows[0].ncm, '02023000') && eq(rows.reduce((t, r) => t + r.vItem, 0), 100001) && eq(rows.reduce((t, r) => t + r.vICMS, 0), 18000);
+      });
+      await T('EFD-Contribuições', 'Serviço prestado do A100 entra como serviço, com ISS e PIS/COFINS', () => { const X = RC.linhasExtras([C], { efdCob: new Set(['11222333000181|2026-10']) }); const r = X.rows.find(x => x.tipoDoc === 'NFSe'); return eq(!!r, true) && eq(r.dir, 'S') && eq(r.natureza, 'servico') && eq(r.vISS, 500) && eq(r.vCOFINS, 760) && eq(X.rows.filter(x => /C180/.test(x.fonte)).length, 0); });
+    }
+
     /* Projeto local */
     await T('Projeto local', 'Exporta e restaura com integridade', () => {
       const txt = R.packProject({ config: { projeto: 'Teste' }, xml: st, efds: [efd], cruzamento: cx, log: [] });
@@ -4017,8 +4283,8 @@ table.t tr.sel td{background:var(--accent-bg)}
 
   /* ---------------- estado da sessão (somente memória) ---------------- */
   const S = {
-    xml: new RTS.XmlStore(), efds: [], cruzamento: null, log: [], dirty: false,
-    config: { tema: 'dark', cor: 'petroleo', projeto: 'Projeto sem título', empresa: '', tol: 1, pageSize: 25, keepRaw: true },
+    xml: new RTS.XmlStore(), efds: [], contribs: [], cruzamento: null, log: [], dirty: false,
+    config: { tema: 'dark', cor: 'petroleo', projeto: 'Projeto sem título', empresa: '', tol: 1, pageSize: 25, keepRaw: false },
     filters: { ini: '', fim: '', dir: '', uf: '', cfop: '', ncm: '', estab: '' },
     ui: { tab: {}, efdSel: null, dashSrc: null, consSrc: 'efdx', consDims: ['dir', 'cfop'], lastXml: null, cruzSev: '', issueSev: {} },
     cache: {},
@@ -4041,11 +4307,20 @@ table.t tr.sel td{background:var(--accent-bg)}
   function efdItemOps() { return S.cache.efdItems || (S.cache.efdItems = RTS.efdOperacoesItens(S.efds)); }
   function efdFull() {
     if (S.cache.efdFull) return S.cache.efdFull;
-    const F = RTS.efdOperacoesCompletas(S.efds, S.xml);
+    const CX = S.contribs.length ? RTS_CONTRIB.indice(S.contribs) : null;
+    const F = RTS.efdOperacoesCompletas(S.efds, S.xml, CX);
     // NFS-e não é escriturada na EFD ICMS/IPI; CT-e só entra pelo D100/D190 — o XML cobre o que a EFD não traz
     const cteEfd = new Set(); for (const R of S.efds) for (const d of R.cte) if (d.CHV_CTE) cteEfd.add(d.CHV_CTE);
     const extra = xmlOps().filter(o => o.tipo === 'servico' && (o.tipoDoc === 'NFSe' || !cteEfd.has(o.chave))).map(o => Object.assign({}, o, { fonte: o.tipoDoc === 'NFSe' ? 'NFS-e (XML)' : 'CT-e (XML)', emissao: o.dir === 'S' ? 'Própria' : 'Terceiros' }));
     F.rows = F.rows.concat(extra); F.cobertura.servicosXml = extra.reduce((t, o) => t + (o.vItem || 0), 0);
+    if (S.contribs.length) {
+      // EFD-Contribuições: serviços (A100), CT-e tomados (D100) e estabelecimento × mês sem EFD ICMS/IPI
+      const efdCob = new Set(); for (const R of S.efds) if (R.header) efdCob.add(R.header.CNPJ + '|' + (R.header.DT_INI || '').slice(0, 7));
+      const cteChaves = new Set(cteEfd); const nfseChaves = new Set(); for (const o of extra) { if (o.tipoDoc === 'NFSe') nfseChaves.add(o.chave); else cteChaves.add(o.chave); }
+      const docChaves = new Set(); for (const r of F.rows) if (r.chave) docChaves.add(r.chave);
+      const X = RTS_CONTRIB.linhasExtras(S.contribs, { efdCob, cteChaves, nfseChaves, docChaves });
+      F.rows = F.rows.concat(X.rows); Object.assign(F.cobertura, { contribServ: X.cob.servicos, contribCte: X.cob.cte, contribIsolado: X.cob.isolado, contribC180: X.cob.c180 });
+    }
     return (S.cache.efdFull = F);
   }
   function efdC190Ops() { return S.cache.efdC190 || (S.cache.efdC190 = RTS.efdOperacoesC190(S.efds)); }
@@ -4091,7 +4366,7 @@ table.t tr.sel td{background:var(--accent-bg)}
       <label class="f"><span>UF do participante</span><select class="sel" data-f="uf"><option value="">Todas</option>${[...ufs].sort().map(u => `<option ${f.uf === u ? 'selected' : ''}>${u}</option>`).join('')}</select></label>
       <label class="f"><span>CFOP (início)</span><input class="inp" style="width:96px" data-f="cfop" value="${esc(f.cfop)}" placeholder="ex.: 61"></label>
       <label class="f"><span>NCM (início)</span><input class="inp" style="width:110px" data-f="ncm" value="${esc(f.ncm)}" placeholder="ex.: 0201"></label>
-      ${S.efds.length > 1 ? `<label class="f"><span>Estabelecimento</span><select class="sel" data-f="estab"><option value="">Todos</option>${[...new Set(S.efds.map(e => e.header && e.header.CNPJ))].filter(Boolean).sort().map(c => `<option value="${c}" ${f.estab === c ? 'selected' : ''}>${fmtDoc(c)} · ${esc(efdNome(c))}</option>`).join('')}</select></label>` : ''}
+      ${estabsSessao().length > 1 ? `<label class="f"><span>Estabelecimento</span><select class="sel" data-f="estab"><option value="">Todos</option>${estabsSessao().filter(Boolean).sort().map(c => `<option value="${c}" ${f.estab === c ? 'selected' : ''}>${fmtDoc(c)} · ${esc(efdNome(c))}</option>`).join('')}</select></label>` : ''}
       ${n ? `<button class="btn ghost sm" data-act="clear-filters">${ic('x')} Limpar</button>` : ''}</div>`;
   }
 
@@ -4197,7 +4472,7 @@ table.t tr.sel td{background:var(--accent-bg)}
   /* ---------------- navegação ---------------- */
   const NAV = [
     { h: 'Visão geral' }, { id: 'dashboard', t: 'Dashboard Executivo', i: 'dash' },
-    { h: 'Importação' }, { id: 'importacoes', t: 'Central de Importações', i: 'upload' }, { id: 'importar-xml', t: 'Importador XML (NF-e · CT-e · NFS-e)', i: 'xml', cnt: () => S.xml.docs.length }, { id: 'importar-efd', t: 'Importador EFD ICMS/IPI', i: 'txt', cnt: () => S.efds.length },
+    { h: 'Importação' }, { id: 'importacoes', t: 'Central de Importações', i: 'upload' }, { id: 'importar-xml', t: 'Importador XML (NF-e · CT-e · NFS-e)', i: 'xml', cnt: () => S.xml.docs.length }, { id: 'importar-efd', t: 'Importador EFD (ICMS/IPI e Contribuições)', i: 'txt', cnt: () => S.efds.length + S.contribs.length },
     { h: 'Bases' }, { id: 'base-xml', t: 'Base de Documentos XML', i: 'db' }, { id: 'base-efd', t: 'Base de Escrituração EFD', i: 'book' },
     { h: 'Análise' }, { id: 'consolidacao', t: 'Consolidação de Operações', i: 'layers' }, { id: 'cruzamento', t: 'Cruzamento XML × EFD', i: 'merge', cnt: () => S.cruzamento ? S.cruzamento.resumo.totalDifs : '' },
     { h: 'Reforma Tributária' }, { id: 'classificacoes', t: 'Central de Classificações', i: 'list', cnt: () => S.classTab ? S.classTab.classes.length : '' }, { id: 'motor-regras', t: 'Motor de Regras Tributárias', i: 'calc', cnt: () => S.regras.filter(r => r.ativa).length }, { id: 'analise-ncm', t: 'Análise por NCM', i: 'tag' }, { id: 'analise-nbs', t: 'Análise por NBS (serviços)', i: 'svc', cnt: () => { const n = S.xml.items.filter(i => i.tipo === 'servico').length; return n || ''; } }, { id: 'simulador', t: 'Simulador Tributário', i: 'chart' }, { id: 'simulador-cbs', t: 'Simulador CBS', i: 'calc' }, { id: 'simulador-ibs', t: 'Simulador IBS', i: 'calc' }, { id: 'imposto-seletivo', t: 'Imposto Seletivo', i: 'alert' }, { id: 'comparativo', t: 'Comparativo Atual × Reforma', i: 'swap' }, { id: 'creditos', t: 'Simulador de Créditos', i: 'download' }, { id: 'operacoes', t: 'Simulador de Operações', i: 'layers' }, { id: 'precos', t: 'Preços e Margens', i: 'tag' }, { id: 'cenarios', t: 'Cenários e Projeções', i: 'spark' }, { id: 'linha-tempo', t: 'Linha do Tempo da Transição', i: 'clock' },
@@ -4205,7 +4480,7 @@ table.t tr.sel td{background:var(--accent-bg)}
     
     { h: 'Sistema' }, { id: 'projetos', t: 'Gestão de Projetos Locais', i: 'folder' }, { id: 'configuracoes', t: 'Configurações', i: 'gear' }, { id: 'autotestes', t: 'Autotestes', i: 'flask' }
   ];
-  const TITLES = { dashboard: 'Dashboard Executivo', importacoes: 'Central de Importações', 'importar-xml': 'Importador XML — NF-e, CT-e e NFS-e', 'importar-efd': 'Importador EFD ICMS/IPI', 'base-xml': 'Base de Documentos XML', 'base-efd': 'Base de Escrituração EFD', consolidacao: 'Consolidação de Operações', cruzamento: 'Cruzamento XML × EFD', projetos: 'Gestão de Projetos Locais', configuracoes: 'Configurações', autotestes: 'Autotestes', roadmap: 'Roteiro das próximas fases', 'motor-regras': 'Motor de Regras Tributárias', 'analise-ncm': 'Análise por NCM', 'analise-nbs': 'Análise por NBS — serviços', simulador: 'Simulador Tributário', 'simulador-cbs': 'Simulador CBS', 'simulador-ibs': 'Simulador IBS', 'imposto-seletivo': 'Imposto Seletivo', comparativo: 'Comparativo Atual × Reforma', creditos: 'Simulador de Créditos', operacoes: 'Simulador de Operações', precos: 'Preços e Margens', cenarios: 'Cenários e Projeções', 'linha-tempo': 'Linha do Tempo da Transição', relatorios: 'Relatórios Gerenciais', classificacoes: 'Central Oficial de Classificações Tributárias' };
+  const TITLES = { dashboard: 'Dashboard Executivo', importacoes: 'Central de Importações', 'importar-xml': 'Importador XML — NF-e, CT-e e NFS-e', 'importar-efd': 'Importador EFD — ICMS/IPI e Contribuições', 'base-xml': 'Base de Documentos XML', 'base-efd': 'Base de Escrituração EFD', consolidacao: 'Consolidação de Operações', cruzamento: 'Cruzamento XML × EFD', projetos: 'Gestão de Projetos Locais', configuracoes: 'Configurações', autotestes: 'Autotestes', roadmap: 'Roteiro das próximas fases', 'motor-regras': 'Motor de Regras Tributárias', 'analise-ncm': 'Análise por NCM', 'analise-nbs': 'Análise por NBS — serviços', simulador: 'Simulador Tributário', 'simulador-cbs': 'Simulador CBS', 'simulador-ibs': 'Simulador IBS', 'imposto-seletivo': 'Imposto Seletivo', comparativo: 'Comparativo Atual × Reforma', creditos: 'Simulador de Créditos', operacoes: 'Simulador de Operações', precos: 'Preços e Margens', cenarios: 'Cenários e Projeções', 'linha-tempo': 'Linha do Tempo da Transição', relatorios: 'Relatórios Gerenciais', classificacoes: 'Central Oficial de Classificações Tributárias' };
   let route = 'dashboard';
   function navHtml() {
     return NAV.map(n => n.h ? `<h6>${esc(n.h)}</h6>` : `<a href="#${n.id}" class="${n.locked ? 'locked' : ''} ${route === n.id && !n.locked ? 'on' : ''}" title="${esc(n.t)}">${ic(n.i)}<span>${esc(n.t)}</span>${n.locked ? '<span class="ph">F' + n.locked + '</span>' : (n.cnt && n.cnt() ? '<span class="cnt">' + n.cnt() + '</span>' : '')}</a>`).join('');
@@ -4222,7 +4497,7 @@ table.t tr.sel td{background:var(--accent-bg)}
   function updateChrome() {
     document.documentElement.dataset.theme = S.config.tema; document.documentElement.dataset.accent = S.config.cor || 'petroleo';
     const nav = $('#nav'); if (nav) nav.innerHTML = navHtml();
-    const has = S.xml.docs.length || S.efds.length || !!S.lote;
+    const has = S.xml.docs.length || temEfd() || !!S.lote;
     $('#session').innerHTML = `<span class="dot ${!has ? '' : S.dirty ? 'warn' : 'ok'}"></span><span class="t">${!has ? 'Sessão vazia' : S.dirty ? 'Alterações não exportadas' : 'Projeto exportado'}</span>`;
     $('#session').title = 'Os dados ficam somente na memória desta aba. Exporte o projeto antes de fechar ou atualizar a página.';
     $('#themeBtn').innerHTML = ic(S.config.tema === 'dark' ? 'sun' : 'moon');
@@ -4230,7 +4505,16 @@ table.t tr.sel td{background:var(--accent-bg)}
   }
   function go() {
     const h = (location.hash || '').replace('#', ''); route = TITLES[h] ? h : 'dashboard';
-    closeDrawer(); updateChrome(); render(); $('#app').classList.remove('mobile-open');
+    closeDrawer(); updateChrome(); $('#app').classList.remove('mobile-open');
+    // Base grande: mostra o aviso de cálculo antes de montar a tela, para o navegador não parecer travado
+    const grande = (S.cache.efdFull && S.cache.efdFull.rows.length > 30000) || S.xml.items.length > 30000;
+    if (!grande) { render(); return; }
+    ocupado(true); requestAnimationFrame(() => setTimeout(() => { try { render(); } finally { ocupado(false); } }, 20)); // pinta o aviso antes de calcular
+  }
+  function ocupado(on) {
+    let b = document.getElementById('busy');
+    if (!b) { b = document.createElement('div'); b.id = 'busy'; b.innerHTML = '<div class="busy-box"><i class="spin"></i><div><b>Calculando…</b><span>Base grande: a primeira abertura de cada tela pode levar alguns segundos. Depois fica em memória.</span></div></div>'; document.body.appendChild(b); }
+    b.classList.toggle('on', !!on);
   }
   function render() {
     const v = $('#view'); if (!v) return;
@@ -4339,15 +4623,28 @@ table.t tr.sel td{background:var(--accent-bg)}
   }
 
   /* ---------- Importador EFD ---------- */
-  PAGES['importar-efd'] = () => head('Fase 3 · Módulo independente', 'Importador EFD ICMS/IPI', 'Leitura do TXT conforme o leiaute oficial (Guia Prático da EFD ICMS/IPI), com interpretação hierárquica, totalizadores dos blocos e do bloco 9, conferência C100 × C190 × C170 e da apuração E110/E111/E116. Arquivos em UTF-8 ou ISO-8859-1.', `<a class="btn" href="#base-efd">${ic('book')} Base de escrituração</a>`) + `
-      <label class="drop" id="dropEfd">${ic('upload')}<h3>Arraste o(s) arquivo(s) TXT da EFD aqui</h3><p>ou clique para selecionar · um arquivo por estabelecimento/período · arquivos assinados pelo PVA são aceitos</p><input type="file" id="inEfd" accept=".txt,text/plain" multiple></label>
+  PAGES['importar-efd'] = () => head('Fase 3 · Módulo independente', 'Importador EFD — ICMS/IPI e Contribuições', 'EFD ICMS/IPI e EFD-Contribuições no mesmo campo: o app reconhece o tipo pelo registro 0000. Leitura do TXT conforme o leiaute oficial (Guia Prático da EFD ICMS/IPI), com interpretação hierárquica, totalizadores dos blocos e do bloco 9, conferência C100 × C190 × C170 e da apuração E110/E111/E116. Arquivos em UTF-8 ou ISO-8859-1.', `<a class="btn" href="#base-efd">${ic('book')} Base de escrituração</a>`) + `
+      <label class="drop" id="dropEfd">${ic('upload')}<h3>Arraste o(s) TXT da EFD ICMS/IPI e/ou da EFD-Contribuições aqui</h3><p>ou clique para selecionar · um arquivo por estabelecimento/período · arquivos assinados pelo PVA são aceitos</p><input type="file" id="inEfd" accept=".txt,text/plain" multiple></label>
       <div class="drop-row"><label class="btn sm">${ic('folder')} Selecionar pasta<input type="file" id="inEfdDir" webkitdirectory directory multiple style="display:none"></label><span class="muted" style="font-size:12px">Importe de uma vez as EFD de todos os estabelecimentos e meses da empresa (mesma raiz de CNPJ) — a análise é consolidada, com filtro por estabelecimento.</span></div>
       <div class="notice info" style="margin-top:10px">${ic('info')}<div>A EFD ICMS/IPI não tem campos de CST nem de cClassTrib do IBS/CBS. Para as operações vindas da EFD, a <a href="#classificacoes">Central de Classificações</a> sugere o enquadramento (com validação sua), mas não há o que conferir no arquivo — essa conferência só existe no XML.</div></div>
       <div id="efdProg" style="margin-top:14px"></div><div style="height:14px"></div>
       ${S.efds.length ? efdMapa() : ''}${S.efds.length > 4 ? efdLista() : S.efds.length ? `<div class="grid g2">${S.efds.map(e => { const c = sevCounts(e.issues); return `<div class="card"><div class="card-h">${ic('txt')}<h3 title="${esc(e.file)}">${esc(e.header ? e.header.NOME : e.file)}</h3><span class="r"><button class="btn sm" data-act="efd-open" data-id="${e.id}">Abrir</button><button class="btn sm ghost danger" data-act="efd-remove" data-id="${e.id}" title="Remover arquivo">${ic('trash')}</button></span></div><div class="card-b">
-          <dl class="kv"><dt>Arquivo</dt><dd class="mono">${esc(e.file)}</dd><dt>CNPJ / UF</dt><dd>${e.header ? fmtDoc(e.header.CNPJ) + ' · ' + e.header.UF + ' · IE ' + esc(e.header.IE) : '—'}</dd><dt>Período</dt><dd>${e.header ? fmtD(e.header.DT_INI) + ' a ' + fmtD(e.header.DT_FIN) : '—'}</dd><dt>Leiaute / finalidade</dt><dd>${e.header ? 'COD_VER ' + e.header.COD_VER + ' · ' + (e.header.COD_FIN === '0' ? 'Original' : 'Substituto') + ' · Perfil ' + e.header.IND_PERFIL : '—'}</dd><dt>Leitura</dt><dd>${fmtN(e.linesRead)} linhas · ${fmtN(e.docs.length)} C100 · ${fmtN(e.items.length)} C170 · ${fmtN(e.cte.length)} D100 · ${e.encoding} · ${fmtN(e.ms)} ms</dd><dt>Validação</dt><dd>${sevBadges(c)}</dd></dl></div></div>`; }).join('')}</div>` : '<div class="card"><div class="empty">' + ic('txt') + '<h4>Nenhuma EFD importada</h4>Os dados aparecerão aqui e na Base de Escrituração EFD.</div></div>'}`;
+          <dl class="kv"><dt>Arquivo</dt><dd class="mono">${esc(e.file)}</dd><dt>CNPJ / UF</dt><dd>${e.header ? fmtDoc(e.header.CNPJ) + ' · ' + e.header.UF + ' · IE ' + esc(e.header.IE) : '—'}</dd><dt>Período</dt><dd>${e.header ? fmtD(e.header.DT_INI) + ' a ' + fmtD(e.header.DT_FIN) : '—'}</dd><dt>Leiaute / finalidade</dt><dd>${e.header ? 'COD_VER ' + e.header.COD_VER + ' · ' + (e.header.COD_FIN === '0' ? 'Original' : 'Substituto') + ' · Perfil ' + e.header.IND_PERFIL : '—'}</dd><dt>Leitura</dt><dd>${fmtN(e.linesRead)} linhas · ${fmtN(e.docs.length)} C100 · ${fmtN(e.items.length)} C170 · ${fmtN(e.cte.length)} D100 · ${e.encoding} · ${fmtN(e.ms)} ms</dd><dt>Validação</dt><dd>${sevBadges(c)}</dd></dl></div></div>`; }).join('')}</div>` : S.contribs.length ? '' : '<div class="card"><div class="empty">' + ic('txt') + '<h4>Nenhuma EFD importada</h4>Os dados aparecerão aqui e na Base de Escrituração EFD.</div></div>'}${contribHtml()}`;
+  /** Lista das EFD-Contribuições importadas e como cada parte entra na simulação. */
+  function contribHtml() {
+    if (!S.contribs.length) return '';
+    const tot = (k) => S.contribs.reduce((t, c) => t + (c.resumo[k] || 0), 0);
+    const F = efdFull().cobertura;
+    return `<div style="height:14px"></div><div class="card"><div class="card-h">${ic('layers')}<h3>EFD-Contribuições</h3><span class="sub">${S.contribs.length} arquivo(s)</span></div><div class="card-b">
+      <div class="notice info" style="margin-bottom:12px">${ic('info')}<div><b>Como a EFD-Contribuições entra na simulação.</b> <b>C170</b>: detalha por item (NCM, CFOP, PIS/COFINS) as notas que na EFD ICMS/IPI só têm C190, ligando pela chave da NF-e. <b>C180/C181</b> (vendas consolidadas): distribui o C190 das saídas próprias por NCM, na proporção das vendas do mesmo estabelecimento × mês × CFOP — é um rateio, sinalizado na origem do detalhe. <b>A100/A170</b>: serviços prestados e tomados (NFS-e). <b>D100</b>: CT-e tomados que não estão na EFD ICMS/IPI nem no XML. Estabelecimento × mês sem EFD ICMS/IPI usa a própria EFD-Contribuições (sem ICMS nas vendas consolidadas).</div></div>
+      <div class="grid g4" style="margin-bottom:12px">${kpi('Detalhado pelo C170 (Contribuições)', '<small>R$</small>' + short(F.contrib || 0), 'saídas/entradas ligadas pela chave', 'layers')}${kpi('C190 rateado pelo C180', '<small>R$</small>' + short(F.rateio || 0), 'distribuição por NCM (estimativa)', 'chart')}${kpi('Serviços (A100)', '<small>R$</small>' + short(F.contribServ || 0), fmtN(tot('a100')) + ' NFS-e', 'list')}${kpi('CT-e (D100) e sem EFD ICMS', '<small>R$</small>' + short((F.contribCte || 0) + (F.contribIsolado || 0) + (F.contribC180 || 0)), 'documentos que só estão na Contribuições', 'txt')}</div>
+      <table class="t"><thead><tr><th>Arquivo</th><th>Empresa</th><th>Período</th><th class="r">Estab.</th><th class="r">C100</th><th class="r">C170</th><th class="r">C100 sem item</th><th class="r">C180</th><th class="r">A100</th><th class="r">D100</th><th></th></tr></thead><tbody>${S.contribs.map(c => `<tr><td class="mono" title="${esc(c.file)}">${esc(c.file.length > 38 ? c.file.slice(0, 36) + '…' : c.file)}</td><td>${esc(c.header.NOME)}<div class="muted" style="font-size:11.5px">${fmtDoc(c.header.CNPJ)}</div></td><td>${fmtD(c.header.DT_INI)} a ${fmtD(c.header.DT_FIN)}</td><td class="r num">${fmtN(Object.keys(c.estabs).length)}</td><td class="r num">${fmtN(c.resumo.c100)}</td><td class="r num">${fmtN(c.resumo.c170)}</td><td class="r num">${fmtN(c.resumo.c100SemItem)}</td><td class="r num">${fmtN(c.resumo.c180)}</td><td class="r num">${fmtN(c.resumo.a100)}</td><td class="r num">${fmtN(c.resumo.d100)}</td><td class="r"><button class="btn sm ghost danger" data-act="efc-remove" data-id="${c.id}" title="Remover arquivo">${ic('trash')}</button></td></tr>`).join('')}</tbody></table>
+      ${S.contribs.some(c => c.avisos.length) ? `<div class="notice warn" style="margin-top:10px">${ic('alert')}<div>${S.contribs.filter(c => c.avisos.length).map(c => '<b>' + esc(c.file) + ':</b> ' + esc(c.avisos.join(' '))).join('<br>')}</div></div>` : ''}
+    </div></div>`;
+  }
   const raiz = (c) => String(c || '').slice(0, 8);
-  const efdNome = (cnpj) => { const e = S.efds.find(x => x.header && x.header.CNPJ === cnpj); return e ? e.header.NOME + ' · ' + e.header.UF : ''; };
+  const efdNome = (cnpj) => { const e = S.efds.find(x => x.header && x.header.CNPJ === cnpj); if (e) return e.header.NOME + ' · ' + e.header.UF; for (const c of S.contribs) { const x = c.estabs[cnpj]; if (x) return (x.NOME || c.header.NOME) + (x.UF ? ' · ' + x.UF : ''); } return ''; };
+  const estabsSessao = () => [...new Set(S.efds.map(e => e.header && e.header.CNPJ).concat(...S.contribs.map(c => Object.keys(c.estabs))))].filter(Boolean);
   /** Mapa de cobertura: estabelecimentos × meses (detecta meses faltantes e raízes diferentes). */
   function efdMapa() {
     const hs = S.efds.filter(e => e.header); if (!hs.length) return '';
@@ -4367,7 +4664,7 @@ table.t tr.sel td{background:var(--accent-bg)}
   AFTER['importar-efd'] = () => { bindDrop('#dropEfd', importEfdFiles); $('#inEfd').onchange = e => importEfdFiles([...e.target.files]); const d = $('#inEfdDir'); if (d) d.onchange = e => importEfdFiles([...e.target.files]); };
   async function importEfdFiles(files, silent) {
     const txts = files.filter(f => /\.txt$/i.test(f.name));
-    if (!txts.length) { toast('warn', 'Selecione arquivos .txt da EFD ICMS/IPI.'); return; }
+    if (!txts.length) { toast('warn', 'Selecione arquivos .txt da EFD ICMS/IPI ou da EFD-Contribuições.'); return; }
     const pg = $('#efdProg');
     const raizAntes = new Set(S.efds.filter(e => e.header).map(e => raiz(e.header.CNPJ))); let idx = 0;
     for (const f of txts) {
@@ -4376,6 +4673,17 @@ table.t tr.sel td{background:var(--accent-bg)}
         const buf = typeof f.text === 'string' ? f.text : await readBuf(f);
         const prog = (p) => { if (pg) pg.innerHTML = `<div class="row" style="justify-content:space-between;margin-bottom:6px"><span class="muted">${txts.length > 1 ? 'Arquivo ' + idx + ' de ' + txts.length + ' · ' : ''}Lendo ${esc(f.name)}…</span><span class="mono">${Math.round(p * 100)}%</span></div><div class="prog"><i style="width:${p * 100}%"></i></div>`; };
         prog(0); await new Promise(r => setTimeout(r, 0));
+        if (RTS_CONTRIB.detectar(buf)) {
+          const C = await RTS_CONTRIB.parse(buf, f.name, { onProgress: prog });
+          if (!C.header) { logImp('EFD-Contribuições', f.name, 'rejeitado', 'Registro 0000 não encontrado'); toast('err', f.name + ': registro 0000 não encontrado.'); continue; }
+          const dupC = S.contribs.find(e => e.header.CNPJ === C.header.CNPJ && e.header.DT_INI === C.header.DT_INI && e.header.DT_FIN === C.header.DT_FIN);
+          if (dupC) { const ok = silent ? true : await confirmBox('EFD-Contribuições já importada', `Já existe uma EFD-Contribuições de <b>${fmtDoc(C.header.CNPJ)}</b> para ${fmtD(C.header.DT_INI)} a ${fmtD(C.header.DT_FIN)} (${esc(dupC.file)}). Substituir pela nova?`, 'Substituir'); if (!ok) { logImp('EFD-Contribuições', f.name, 'ignorado', 'Duplicada'); continue; } S.contribs = S.contribs.filter(e => e !== dupC); }
+          S.contribs.push(C); const rs = C.resumo;
+          const det = fmtN(rs.c170) + ' itens C170 · ' + fmtN(rs.c180) + ' C180 · ' + fmtN(rs.a100) + ' NFS-e (A100) · ' + fmtN(rs.d100) + ' CT-e (D100)';
+          logImp('EFD-Contribuições', f.name, 'importado', det);
+          if (!silent) toast(C.avisos.length ? 'warn' : 'ok', f.name + ' (EFD-Contribuições): ' + det + '.' + (C.avisos.length ? ' ' + C.avisos[0] : ''));
+          continue;
+        }
         const R = await RTS.parseEFD(buf, f.name, { onProgress: prog, keepRaw: S.config.keepRaw });
         if (!R.header) { logImp('EFD ICMS/IPI', f.name, 'rejeitado', 'Registro 0000 não encontrado'); toast('err', f.name + ': não é uma EFD ICMS/IPI (registro 0000 ausente).'); continue; }
         const dup = S.efds.find(e => e.header && e.header.CNPJ === R.header.CNPJ && e.header.DT_INI === R.header.DT_INI && e.header.DT_FIN === R.header.DT_FIN);
@@ -4489,7 +4797,7 @@ table.t tr.sel td{background:var(--accent-bg)}
   const DIMS = { fonte: 'Origem do detalhe', emissao: 'Emissão', mes: 'Mês', dir: 'Sentido', cfop: 'CFOP', ncm: 'NCM', cst: 'CST', produto: 'Produto', partNome: 'Participante', partUF: 'UF participante', aliq: 'Alíquota ICMS', estab: 'Estabelecimento', cClassTrib: 'cClassTrib' };
   const SRC_DIMS = { efdx: ['mes', 'dir', 'emissao', 'fonte', 'cfop', 'ncm', 'cst', 'aliq', 'produto', 'partNome', 'partUF', 'estab'], xml: ['mes', 'dir', 'cfop', 'ncm', 'cst', 'produto', 'partNome', 'partUF', 'cClassTrib'], c170: ['mes', 'dir', 'cfop', 'ncm', 'cst', 'produto', 'partNome', 'partUF', 'estab'], c190: ['mes', 'dir', 'cfop', 'cst', 'aliq', 'partNome', 'partUF', 'estab'] };
   PAGES.consolidacao = () => {
-    const avail = { efdx: S.efds.length > 0, xml: S.xml.docs.length > 0, c170: S.efds.some(e => e.items.length), c190: S.efds.length > 0 };
+    const avail = { efdx: temEfd() > 0, xml: S.xml.docs.length > 0, c170: S.efds.some(e => e.items.length), c190: S.efds.length > 0 };
     if (!avail.xml && !avail.c190) return head('Fase 4', 'Consolidação de Operações', '') + `<div class="card"><div class="empty">${ic('layers')}<h4>Importe XML ou EFD para consolidar</h4></div></div>`;
     let src = S.ui.consSrc; if (!avail[src]) src = S.ui.consSrc = avail.efdx ? 'efdx' : 'xml';
     const dims = S.ui.consDims.filter(d => SRC_DIMS[src].includes(d)); if (!dims.length) dims.push('cfop');
@@ -4512,10 +4820,10 @@ table.t tr.sel td{background:var(--accent-bg)}
   };
 
   function coberturaHtml() {
-    const c = efdFull().cobertura; const tot = c.c170 + c.xml + c.c190 || 1; const pct = (v) => fmtN(v / tot * 100, 1) + '%';
+    const c = efdFull().cobertura; const tot = c.c170 + c.xml + (c.contrib || 0) + (c.rateio || 0) + c.c190 || 1; const pct = (v) => fmtN(v / tot * 100, 1) + '%';
     const sem = c.docsSemDetalhe;
-    return `<div class="notice ${sem.length ? 'warn' : 'info'}">${ic(sem.length ? 'alert' : 'info')}<div><b>Como a escrituração é completada.</b> NF-e de emissão própria não têm C170 na EFD, só o C190 (CST/CFOP/alíquota). Para esses documentos o item, o NCM e o produto vêm do <b>XML da mesma chave</b>, e o cruzamento confere se a soma dos itens do XML fecha com o C190. Sem o XML, o documento entra apenas pelo C190, sem NCM.</div></div>
-      <div class="grid g4">${kpi('Detalhado pelo C170', '<small>R$</small>' + short(c.c170), pct(c.c170) + ' do valor de mercadorias')}${kpi('Detalhado pelo XML vinculado', '<small>R$</small>' + short(c.xml), pct(c.xml) + ' — saídas próprias')}${kpi('Sem detalhe de item', '<small>R$</small>' + short(c.c190), sem.length + ' documento(s) sem XML na sessão', sem.length ? 'alert' : 'check')}${kpi('CT-e (D190)', '<small>R$</small>' + short(c.d190), 'serviço de transporte')}</div>
+    return `<div class="notice ${sem.length ? 'warn' : 'info'}">${ic(sem.length ? 'alert' : 'info')}<div><b>Como a escrituração é completada.</b> NF-e de emissão própria não têm C170 na EFD, só o C190 (CST/CFOP/alíquota). Para esses documentos o item, o NCM e o produto vêm do <b>XML da mesma chave</b>, e o cruzamento confere se a soma dos itens do XML fecha com o C190. Sem o XML, o documento entra apenas pelo C190, sem NCM — a menos que a <b>EFD-Contribuições</b> do período esteja importada: aí o item vem do C170 dela (mesma chave) ou, nas vendas consolidadas (C180), o C190 é distribuído por NCM.</div></div>
+      <div class="grid g4">${kpi('Detalhado pelo C170', '<small>R$</small>' + short(c.c170), pct(c.c170) + ' do valor de mercadorias')}${kpi('Detalhado pelo XML vinculado', '<small>R$</small>' + short(c.xml), pct(c.xml) + ' — saídas próprias')}${kpi('Sem detalhe de item', '<small>R$</small>' + short(c.c190), sem.length + ' documento(s) sem XML na sessão', sem.length ? 'alert' : 'check')}${kpi('CT-e (D190)', '<small>R$</small>' + short(c.d190), 'serviço de transporte')}</div>${S.contribs.length ? `<div style="height:12px"></div><div class="grid g4">${kpi('Detalhado pelo C170 da EFD-Contribuições', '<small>R$</small>' + short(c.contrib || 0), pct(c.contrib || 0) + ' — ligado pela chave', 'layers')}${kpi('C190 rateado pelo C180', '<small>R$</small>' + short(c.rateio || 0), pct(c.rateio || 0) + ' — NCM por proporção', 'chart')}${kpi('Serviços A100 (Contribuições)', '<small>R$</small>' + short(c.contribServ || 0), 'NFS-e prestadas e tomadas', 'list')}${kpi('Só na Contribuições', '<small>R$</small>' + short((c.contribCte || 0) + (c.contribIsolado || 0) + (c.contribC180 || 0)), 'CT-e D100 e estab./mês sem EFD ICMS', 'txt')}</div>` : ''}
       ${sem.length ? `<details><summary class="muted" style="cursor:pointer">Ver os ${sem.length} documento(s) que precisam do XML para ter NCM/produto</summary><div style="height:8px"></div>${table('semxml', { cols: [{ k: 'data', t: 'Emissão', type: 'date' }, { k: 'numero', t: 'Número', r: 1 }, { k: 'serie', t: 'Série' }, { k: 'dir', t: 'Sentido', type: 'dir' }, { k: 'emissao', t: 'Emissão' }, { k: 'partNome', t: 'Participante' }, { k: 'vDoc', t: 'Valor', type: 'money' }, { k: 'chave', t: 'Chave', type: 'mono' }, { k: 'efd', t: 'Arquivo EFD' }], rows: sem, exportName: 'documentos-sem-xml' })}</details>` : ''}`;
   }
 
@@ -5355,22 +5663,36 @@ table.t tr.sel td{background:var(--accent-bg)}
     return `<div class="notice warn" style="margin-bottom:12px">${ic('alert')}<div><b>Classificação:</b> ${fmtN(pend / tot * 100, 1)}% do valor com enquadramento pendente de validação${fora ? ' e ' + fmtN(fora / tot * 100, 1) + '% com código ausente da tabela oficial ou com restrição' : ''}. Resolva na <a href="#classificacoes">Central de Classificações</a> (aba Enquadramentos da sessão).</div></div>`;
   }
   function coberturaAviso() {
-    if (simFonte() !== 'efdx' || !S.efds.length) return '';
+    if (simFonte() !== 'efdx' || !temEfd()) return '';
     const c = efdFull().cobertura; const sem = c.docsSemDetalhe; if (!sem.length || !c.c190) return '';
     const tot = c.c170 + c.xml + c.c190 || 1; const saidas = sem.filter(d => d.dir === 'S').length;
     return `<div class="notice warn" style="margin-bottom:12px">${ic('alert')}<div><b>Saídas sem C170 e sem XML:</b> ${fmtN(sem.length)} documento(s), ${money(c.c190)} (${fmtN(c.c190 / tot * 100, 1)}% do valor${saidas ? ', ' + fmtN(saidas) + ' de saída' : ''}), entraram só pelo C190, sem NCM. Eles foram simulados pela <b>regra geral (tributação integral)</b>, o que superestima CBS/IBS de itens com redução, como carnes (Anexo I). Importe os XML dessas notas — a lista está em <a href="#consolidacao">Consolidação</a>.</div></div>`;
   }
   function planOps() { if (!S.lote) return []; return S.cache.planOps || (S.cache.planOps = RTS_LOTE.paraOperacoes(S.lote.linhas)); }
   const temPlan = () => !!(S.lote && S.lote.linhas.some(l => l.ok));
-  const temDados = () => !!(S.xml.docs.length || S.efds.length || temPlan());
-  function simFonte() { const f = S.ui.sim.fonte; if (f === 'planilha' && temPlan()) return 'planilha'; if (f === 'efdx' && S.efds.length) return 'efdx'; if (f === 'xml' && S.xml.docs.length) return 'xml'; if (S.efds.length) return 'efdx'; if (S.xml.docs.length) return 'xml'; return temPlan() ? 'planilha' : 'xml'; }
-  const FONTE_LBL = { efdx: 'EFD completa (C170 + XML nas saídas)', xml: 'Somente XML', planilha: 'Planilha de operações' };
+  const temEfd = () => S.efds.length + S.contribs.length;
+  const temDados = () => !!(S.xml.docs.length || temEfd() || temPlan());
+  function simFonte() { const f = S.ui.sim.fonte; if (f === 'planilha' && temPlan()) return 'planilha'; if (f === 'efdx' && temEfd()) return 'efdx'; if (f === 'xml' && S.xml.docs.length) return 'xml'; if (temEfd()) return 'efdx'; if (S.xml.docs.length) return 'xml'; return temPlan() ? 'planilha' : 'xml'; }
+  const FONTE_LBL = { efdx: 'EFD completa (C170 + XML + Contribuições)', xml: 'Somente XML', planilha: 'Planilha de operações' };
   /** Operações da fonte ativa, sem os filtros globais. */
   function fonteRows() { const f = simFonte(); return f === 'planilha' ? planOps() : f === 'efdx' ? efdFull().rows : xmlOps(); }
   function simRows() { return applyF(fonteRows()); }
-  function simResult(ano) { const k = 'sim:' + ano + ':' + simFonte() + ':' + S.ui.sim.ibsMunPct + ':' + JSON.stringify(S.filters); return S.cache[k] || (S.cache[k] = SM.simular(simRows(), { ano, regras: S.regras, premissas: S.premissas, ibsMunPct: S.ui.sim.ibsMunPct === '' ? null : Number(S.ui.sim.ibsMunPct) })); }
+  /** Guarda no máximo `max` resultados pesados (com todas as linhas) do mesmo tipo — evita estourar a memória do navegador com bases grandes. */
+  function cachePesado(prefixo, k, fn, max) {
+    if (S.cache[k]) return S.cache[k];
+    const ks = Object.keys(S.cache).filter(x => x.startsWith(prefixo)); while (ks.length >= (max || 1)) delete S.cache[ks.shift()];
+    const outros = Object.keys(S.cache).filter(x => /^(sim|cmp|cred):/.test(x) && !x.startsWith(prefixo)); while (outros.length >= 2) delete S.cache[outros.shift()]; // no máximo 3 resultados detalhados na memória
+    return (S.cache[k] = fn());
+  }
+  const simOpts = (ano, extra) => Object.assign({ ano, regras: S.regras, premissas: S.premissas, ibsMunPct: S.ui.sim.ibsMunPct === '' ? null : Number(S.ui.sim.ibsMunPct) }, extra || {});
+  function simResult(ano) { const k = 'sim:' + ano + ':' + simFonte() + ':' + S.ui.sim.ibsMunPct + ':' + JSON.stringify(S.filters); return cachePesado('sim:', k, () => SM.simular(simRows(), simOpts(ano))); }
+  /** Só os totais do ano (sem guardar linhas) — usado nas séries 2026–2033. */
+  /** Operações agrupadas para os totais (séries e cenários) — mesma fonte e filtros de simRows(). */
+  function rowsAgr() { const k = 'agr:' + simFonte() + ':' + JSON.stringify([S.filters, S.vedados]); return S.cache[k] || (S.cache[k] = SM.agrupar(simRows(), S.vedados)); }
+  function simTot(ano) { const k = 'simT:' + ano + ':' + simFonte() + ':' + S.ui.sim.ibsMunPct + ':' + JSON.stringify(S.filters); const full = S.cache['sim:' + k.slice(5)]; if (full) return full.T; return S.cache[k] || (S.cache[k] = SM.simular(rowsAgr(), simOpts(ano, { totais: true })).T); }
+  function scenDet(Y) { const c = S.cache.scenDet; if (c && c.Y === Y) return c.det; const det = Y._det(); S.cache.scenDet = { Y, det }; return det; }
   function simControls(extra) {
-    const a = S.ui.sim.ano; const p = RTS_RULES.premissaAno(S.premissas, a); const fontes = ['efdx', 'xml', 'planilha'].filter(k => k === 'efdx' ? S.efds.length : k === 'xml' ? S.xml.docs.length : temPlan());
+    const a = S.ui.sim.ano; const p = RTS_RULES.premissaAno(S.premissas, a); const fontes = ['efdx', 'xml', 'planilha'].filter(k => k === 'efdx' ? temEfd() : k === 'xml' ? S.xml.docs.length : temPlan());
     return `<div class="card"><div class="card-b stack">
       <div class="row"><span class="muted" style="width:120px">Ano simulado</span><div class="seg">${ANOS.map(y => `<button class="${a === y ? 'on' : ''}" data-act="sim-ano" data-v="${y}">${y}</button>`).join('')}</div>
       <span class="badge ${p.tipoCbs === 'lei' && p.tipoIbs === 'lei' ? 'ok' : 'warn'}">${p.tipoCbs === 'lei' && p.tipoIbs === 'lei' ? 'alíquotas de lei' : 'contém premissas'}</span><span class="muted" style="font-size:12px">CBS ${fmtN(p.cbs, 2)}% · IBS ${fmtN(p.ibs, 2)}% · ICMS a ${fmtN(p.icmsFator * 100)}%</span><a class="btn sm ghost" href="#motor-regras" data-act="go-prem">Ajustar premissas</a></div>
@@ -5401,7 +5723,7 @@ table.t tr.sel td{background:var(--accent-bg)}
   PAGES.simulador = () => {
     if (!temDados()) return head('Fase 6', 'Simulador Tributário', '') + needData();
     const ano = S.ui.sim.ano; const r = simResult(ano); const T = r.T;
-    const series = ANOS.map(a => simResult(a).T);
+    const series = ANOS.map(a => simTot(a));
     const t = tabs('sim', [['regras', 'Por regra / cClassTrib'], ['ncm', 'Por NCM'], ['itens', 'Itens simulados', r.linhas.length]]);
     let body;
     if (t.cur === 'regras') body = grupoTabela('simreg', r.linhas, L => ({ key: L.papel + '|' + L.regraId, vals: { papel: SM.PAPEL_LBL[L.papel], regra: L.regra, cst: L.cst, cClassTrib: L.cClassTrib, status: L.status, pRed: L.pRed } }), [{ k: 'papel', t: 'Apuração' }, { k: 'regra', t: 'Regra' }, { k: 'status', t: 'Fundamento da regra', v: x => (STATUS_LBL[x.status] || [x.status])[0], html: x => statusBadge(x.status) }, { k: 'cst', t: 'CST', type: 'mono' }, { k: 'cClassTrib', t: 'cClassTrib', type: 'mono' }, { k: 'pRed', t: 'Red. %', type: 'num' }]);
@@ -5417,7 +5739,7 @@ table.t tr.sel td{background:var(--accent-bg)}
 
   PAGES['simulador-cbs'] = () => {
     if (!temDados()) return head('Fase 6', 'Simulador CBS', '') + needData();
-    const ano = S.ui.sim.ano; const r = simResult(ano); const T = r.T; const series = ANOS.map(a => simResult(a).T);
+    const ano = S.ui.sim.ano; const r = simResult(ano); const T = r.T; const series = ANOS.map(a => simTot(a));
     const conf = ano === 2026 ? null : null;
     const c26 = SM.conferirXml(simResult(2026).linhas, S.xml);
     return head('Fase 6 · Reforma Tributária', 'Simulador CBS', 'Contribuição sobre Bens e Serviços (federal), que substitui PIS e COFINS a partir de 2027.') + simControls() + filterBar() + `
@@ -5434,7 +5756,7 @@ table.t tr.sel td{background:var(--accent-bg)}
 
   PAGES['simulador-ibs'] = () => {
     if (!temDados()) return head('Fase 6', 'Simulador IBS', '') + needData();
-    const ano = S.ui.sim.ano; const r = simResult(ano); const T = r.T; const series = ANOS.map(a => simResult(a).T);
+    const ano = S.ui.sim.ano; const r = simResult(ano); const T = r.T; const series = ANOS.map(a => simTot(a));
     const extra = `<div class="row"><span class="muted" style="width:120px">Repartição do IBS</span><label class="row" style="gap:6px">Parcela municipal na referência do IBS (2029+): <input class="inp sm" style="width:70px" data-simmun value="${esc(S.ui.sim.ibsMunPct)}" placeholder="—">%</label><span class="muted" style="font-size:12px">Sem norma que fixe a repartição: em branco, o IBS de 2029 em diante é mostrado só no total.</span></div>`;
     const byUF = new Map(); for (const L of r.linhas) if (L.papel === 'debito' && !L.diferido) { const u = L.partUF || '(sem UF)'; const g = byUF.get(u) || { uf: u, base: 0, ibs: 0, ibsUF: 0, ibsMun: 0, n: 0 }; g.base += L.base; g.ibs += L.ibs; g.ibsUF += L.ibsUF || 0; g.ibsMun += L.ibsMun || 0; g.n++; byUF.set(u, g); }
     return head('Fase 6 · Reforma Tributária', 'Simulador IBS', 'Imposto sobre Bens e Serviços (estados e municípios), que substitui ICMS e ISS. O IBS é devido ao estado e ao município de destino.') + simControls(extra) + filterBar() + `
@@ -5461,7 +5783,8 @@ table.t tr.sel td{background:var(--accent-bg)}
   /* FASE 7 — COMPARATIVO ATUAL × REFORMA                                 */
   /* =================================================================== */
   const CP = RTS_CMP;
-  function cmpResult(ano) { const c = S.ui.cmp; const k = 'cmp:' + ano + ':' + c.cenario + ':' + c.creditaIPI + ':' + simFonte() + ':' + JSON.stringify(S.filters); return S.cache[k] || (S.cache[k] = CP.comparar(simRows(), { ano, cenario: c.cenario, creditaIPI: c.creditaIPI, regras: S.regras, premissas: S.premissas, ibsMunPct: S.ui.sim.ibsMunPct === '' ? null : Number(S.ui.sim.ibsMunPct) })); }
+  function cmpTot(ano) { const c = S.ui.cmp; const k = ':' + ano + ':' + c.cenario + ':' + c.creditaIPI + ':' + simFonte() + ':' + JSON.stringify(S.filters); if (S.cache['cmp' + k]) return S.cache['cmp' + k].T; return S.cache['cmpT' + k] || (S.cache['cmpT' + k] = CP.comparar(rowsAgr(), { totais: true, ano, cenario: c.cenario, creditaIPI: c.creditaIPI, regras: S.regras, premissas: S.premissas, ibsMunPct: S.ui.sim.ibsMunPct === '' ? null : Number(S.ui.sim.ibsMunPct) }).T); }
+  function cmpResult(ano) { const c = S.ui.cmp; const k = 'cmp:' + ano + ':' + c.cenario + ':' + c.creditaIPI + ':' + simFonte() + ':' + JSON.stringify(S.filters); return cachePesado('cmp:', k, () => CP.comparar(simRows(), { ano, cenario: c.cenario, creditaIPI: c.creditaIPI, regras: S.regras, premissas: S.premissas, ibsMunPct: S.ui.sim.ibsMunPct === '' ? null : Number(S.ui.sim.ibsMunPct) })); }
   const CMP_DIMS = { documento: 'Documento', ncm: 'NCM', produto: 'Produto', cfop: 'CFOP / operação', papel: 'Apuração', estab: 'Empresa / estabelecimento', mes: 'Período (mês)', partNome: 'Participante' };
   const pctTxt = (a, b) => a ? (b - a) / Math.abs(a) * 100 : null;
   const deltaBadge = (p, inverso) => p === null || isNaN(p) ? '<span class="faint">—</span>' : `<span class="badge ${Math.abs(p) < 0.005 ? '' : ((p > 0) !== !!inverso ? 'erro' : 'ok')}">${p > 0 ? '+' : ''}${fmtN(p, 2)}%</span>`;
@@ -5469,7 +5792,7 @@ table.t tr.sel td{background:var(--accent-bg)}
     if (!temDados()) return head('Fase 7', 'Comparativo Atual × Reforma', '') + needData();
     const ano = S.ui.sim.ano; const c = S.ui.cmp; const r = cmpResult(ano); const T = r.T;
     const meses = CP.mesesCobertos(simRows()); const fat = 12 / meses;
-    const series = ANOS.map(a => cmpResult(a).T);
+    const series = ANOS.map(a => cmpTot(a));
     const ctrl = `<div class="row"><span class="muted" style="width:120px">Cenário de preços</span><div class="seg">${[['precos', 'Preços mantidos'], ['neutro', 'Neutralidade de receita']].map(([k, l]) => `<button class="${c.cenario === k ? 'on' : ''}" data-act="cmp-cen" data-v="${k}">${l}</button>`).join('')}</div><label class="row" style="gap:6px;font-size:12.5px"><input type="checkbox" data-cmpipi ${c.creditaIPI ? 'checked' : ''}> A empresa aproveita crédito de IPI</label></div>
       <div class="muted" style="font-size:12px">${c.cenario === 'precos' ? '<b>Preços mantidos:</b> o valor das mercadorias de cada documento não muda; tributos “por fora” (CBS, IBS, IS, IPI, ST) somam-se ao preço pago pelo adquirente.' : '<b>Neutralidade de receita:</b> cada vendedor reprecifica o item para manter a receita líquida de tributos “por dentro” (ICMS, PIS, COFINS) — mostra o efeito puro da troca de tributos.'} Período coberto: ${meses} mês(es); anualização ×${fmtN(fat, 2)}.</div>`;
     const KS = [['icms', 'ICMS próprio'], ['iss', 'ISS'], ['st', 'ICMS-ST'], ['ipi', 'IPI'], ['pis', 'PIS'], ['cofins', 'COFINS'], ['cbs', 'CBS'], ['ibs', 'IBS'], ['is', 'Imposto Seletivo']];
@@ -5516,7 +5839,7 @@ table.t tr.sel td{background:var(--accent-bg)}
   const CR = RTS_CRED;
   const CRED_ST = { validado: 'ok', estimado: 'info', potencial: 'warn', presumido: 'acc', sem_credito: '' };
   const lineKey = (L) => L.id || (L.docId + '|' + L.ncm + '|' + L.vItem);
-  function credResult(ano) { const k = 'cred:' + ano + ':' + simFonte() + ':' + JSON.stringify([S.fornecedores, S.vedados, S.credCfg, S.filters]); return S.cache[k] || (S.cache[k] = CR.creditos(simRows(), { ano, regras: S.regras, premissas: S.premissas, fornecedores: S.fornecedores, vedados: S.vedados, presumidoPct: S.credCfg.presumidoPct, simplesPct: S.credCfg.simplesPct })); }
+  function credResult(ano) { const k = 'cred:' + ano + ':' + simFonte() + ':' + JSON.stringify([S.fornecedores, S.vedados, S.credCfg, S.filters]); return cachePesado('cred:', k, () => CR.creditos(simRows(), { ano, regras: S.regras, premissas: S.premissas, fornecedores: S.fornecedores, vedados: S.vedados, presumidoPct: S.credCfg.presumidoPct, simplesPct: S.credCfg.simplesPct })); }
   const credSel = () => (S.ui.credSel = S.ui.credSel || new Set());
   /** Barra de enquadramento em lote dos fornecedores (marcar/desmarcar todos os filtrados e aplicar). */
   function fornLote() {
@@ -5608,7 +5931,7 @@ table.t tr.sel td{background:var(--accent-bg)}
     const errTbl = erros.length ? `<div style="height:14px"></div><div class="card"><div class="card-h"><h3>${ic('alert')} Linhas com erro — não simuladas</h3><span class="sub">${erros.length}</span></div><div class="card-b">${erros.map(x => `<div class="lote-err"><span class="mono">linha ${x.o.linha}</span><b>${esc(x.o.nome || x.o.ncm || '')}</b><span>${x.erros.map(esc).join(' · ')}</span></div>`).join('')}</div></div>` : '';
     const tbl = table('lote', { cols: [{ k: 'linha', t: 'Linha', type: 'num' }, { k: 'nome', t: 'Identificação' }, { k: 'tipo', t: 'Tipo', v: x => (CR.TIPOS_OP[x.tipo] || {}).nome }, { k: 'rota', t: 'UF', v: x => x.ufOrig + '→' + x.ufDest }, { k: 'cfop', t: 'CFOP', type: 'mono' }, { k: 'ncm', t: 'NCM', type: 'mono', v: x => RTS_NCM.fmt(x.ncm) }, { k: 'ncmDesc', t: 'Nomenclatura', v: x => RTS_NCM.descricao(x.ncm) }, { k: 'ano', t: 'Ano', v: x => String(x.ano) }, { k: 'valor', t: 'Valor', type: 'money' }, { k: 'regra', t: 'Regra' }, { k: 'situacao', t: 'Situação', v: x => CLF.situacao(x).lbl, html: x => sitBadge(x) + (x.avisos.length ? ` <span class="badge info" title="${esc(x.avisos.join(' '))}">aviso</span>` : '') }, { k: 'cst', t: 'CST', type: 'mono' }, { k: 'cClassTrib', t: 'cClassTrib', type: 'mono' }, { k: 'pRed', t: 'Redução %', type: 'num' }, { k: 'icmsA', t: 'ICMS atual', type: 'money' }, { k: 'pcA', t: 'PIS/COFINS atual', type: 'money' }, { k: 'ipiA', t: 'IPI atual', type: 'money' }, { k: 'stA', t: 'ST atual', type: 'money' }, { k: 'icmsN', t: 'ICMS ' + ano, type: 'money' }, { k: 'cbs', t: 'CBS', type: 'money' }, { k: 'ibs', t: 'IBS', type: 'money' }, { k: 'is', t: 'IS', type: 'money' }, { k: 'somaA', t: 'Tributos atuais', type: 'money' }, { k: 'somaN', t: 'Tributos ' + ano, type: 'money' }, { k: 'dif', t: 'Diferença', type: 'money' }, { k: 'difPct', t: 'Δ %', type: 'num', d: 2 }, { k: 'precoA', t: 'Preço cliente atual', type: 'money' }, { k: 'precoN', t: 'Preço cliente ' + ano, type: 'money' }, { k: 'credA', t: 'Crédito adquirente atual', type: 'money' }, { k: 'credN', t: 'Crédito adquirente ' + ano, type: 'money' }, { k: 'custoA', t: 'Custo líquido adquirente atual', type: 'money' }, { k: 'custoN', t: 'Custo líquido adquirente ' + ano, type: 'money' }, { k: 'margemA', t: 'Margem atual', type: 'money' }, { k: 'margemN', t: 'Margem ' + ano, type: 'money' }], rows: r.linhas, onRow: x => { S.ui.op = Object.assign({}, OP_DEF, x, { nome: x.nome || ('Linha ' + x.linha) }); if (x.ano) S.ui.sim.ano = x.ano; S.ui.tab.op = 'avulsa'; render(); window.scrollTo(0, 0); }, exportName: 'lote-operacoes-' + ano });
     const info = `<div class="row" style="margin:14px 0 10px;gap:8px;flex-wrap:wrap"><span class="badge acc">${esc(L.arquivo)}</span><span class="muted" style="font-size:12px">aba “${esc(L.aba)}” · ${fmtN(L.linhas.length)} linha(s) lida(s)${avisos.length ? ' · ' + fmtN(avisos.length) + ' com aviso' : ''}${L.faltam.length ? ' · <span style="color:var(--err)">colunas obrigatórias ausentes: ' + esc(L.faltam.join(', ')) + '</span>' : ''}</span><span class="sp"></span><button class="btn sm" data-act="lote-salvar">${ic('check')} Salvar como cenários</button><button class="btn sm" data-act="lote-exportar">${ic('download')} Resultado em Excel</button></div>`;
-    const temDocs = S.xml.docs.length || S.efds.length; const ativa = simFonte() === 'planilha';
+    const temDocs = S.xml.docs.length || temEfd(); const ativa = simFonte() === 'planilha';
     const base = `<div class="lote-base ${ativa ? 'on' : ''}">${ic(ativa ? 'check' : 'db')}<div><b>${ativa ? (temDocs ? '✓ Já está ativo: esta planilha é a base do aplicativo' : '✓ Já está ativo (automático): esta planilha é a base do aplicativo') : 'Usar esta planilha como base do aplicativo'}</b><span>${ativa ? (temDocs ? '' : 'Como não há XML nem EFD na sessão, a planilha virou a base sozinha — não é preciso clicar em nada. ') + 'Dashboard, Simulador Tributário, Comparativo, Créditos, Preços, Cenários, Linha do Tempo, Relatórios e Análise por NCM estão usando estas operações.' + (temDocs ? ' Os XML/EFD importados continuam disponíveis no seletor "Fonte".' : '') : 'Dashboard, Simulador Tributário, Comparativo, Créditos, Preços, Cenários, Linha do Tempo, Relatórios e Análise por NCM passam a usar estas operações no lugar dos XML/EFD.'}</span></div>${ativa ? (temDocs ? `<button class="btn" data-act="lote-base-off">Voltar aos documentos</button>` : '') + `<a class="btn pri" href="#dashboard">${ic('dash')} Abrir Dashboard</a>` : `<button class="btn pri" data-act="lote-base">${ic('db')} Usar como base do app</button>`}</div>`;
     return intro + base + info + kp + avisoVal + '<div style="height:14px"></div>' + traj + errTbl + '<div style="height:14px"></div>' + `<h3 style="font-size:14px;margin:0 0 10px">Resultado por operação — ${ano}</h3><p class="muted" style="font-size:12px;margin:-4px 0 10px">Clique numa linha para abrir a operação no simulador avulso, com o detalhamento por tributo.</p>` + tbl;
   }
@@ -5645,7 +5968,7 @@ table.t tr.sel td{background:var(--accent-bg)}
   /* =================================================================== */
   const SCN = RTS_SCEN;
   const cenAtivo = () => S.cenarios.find(c => c.id === S.cenarioAtivo) || S.cenarios[0];
-  function scenResult(sc) { const k = 'scen:' + JSON.stringify(sc) + simFonte() + JSON.stringify([S.filters, S.fornecedores, S.vedados, S.credCfg]); return S.cache[k] || (S.cache[k] = SCN.executar(simRows(), sc, { regras: S.regras, premissas: S.premissas, fornecedores: S.fornecedores, vedados: S.vedados, presumidoPct: S.credCfg.presumidoPct, simplesPct: S.credCfg.simplesPct })); }
+  function scenResult(sc) { const k = 'scen:' + JSON.stringify(sc) + simFonte() + JSON.stringify([S.filters, S.fornecedores, S.vedados, S.credCfg]); return S.cache[k] || (S.cache[k] = SCN.executar(simRows(), sc, { rowsTot: rowsAgr(), regras: S.regras, premissas: S.premissas, fornecedores: S.fornecedores, vedados: S.vedados, presumidoPct: S.credCfg.presumidoPct, simplesPct: S.credCfg.simplesPct })); }
   function linesChart(labels, series, o) {
     o = o || {}; const W = 560, H = 220, pb = 26, pl = 64, pt = 10;
     const all = series.flatMap(s => s.values); if (!all.length) return '';
@@ -5679,12 +6002,12 @@ table.t tr.sel td{background:var(--accent-bg)}
     return `<div style="height:14px"></div><div class="card"><div class="card-h"><h3>${ic('db')} Resultado por estabelecimento</h3><span class="sub">${ano}, anualizado · ${rs.length} estabelecimentos da EFD</span></div><div class="card-b">` + table('dashestab', { cols: [{ k: 'estab', t: 'CNPJ', v: r => fmtDoc(r.estab), type: 'mono' }, { k: 'nome', t: 'Estabelecimento' }, { k: 'vendas', t: 'Vendas', type: 'money' }, { k: 'compras', t: 'Compras', type: 'money' }, { k: 'liqA', t: 'Carga líquida atual', type: 'money' }, { k: 'liqN', t: 'Carga líquida ' + ano, type: 'money' }, { k: 'dif', t: 'Diferença', type: 'money' }, { k: 'difPct', t: 'Δ %', type: 'num', d: 2 }, { k: 'sem', t: 'Valor sem fundamento', type: 'money' }], rows: rs, onRow: r => { S.filters.estab = r.estab; render(); toast('info', 'Filtro aplicado: ' + fmtDoc(r.estab) + '. Use "Limpar" nos filtros para voltar ao consolidado.'); }, exportName: 'resultado-por-estabelecimento-' + ano }) + `<p class="muted" style="font-size:12px;margin:8px 0 0">Clique num estabelecimento para filtrar todo o app por ele. Transferências entre estabelecimentos do mesmo titular (CFOP 5151/6151 e correlatos) não têm incidência de IBS/CBS (LC 214/2025, art. 6º, II) e não entram como débito nem crédito.</p></div></div>`;
   }
   function dashboardExecutivo() {
-    const ano = S.ui.sim.ano; const sc = cenAtivo(); const R = scenResult(sc); const Y = R.anos.find(a => a.ano === ano) || R.anos[1]; const C = Y._cmp;
+    const ano = S.ui.sim.ano; const sc = cenAtivo(); const R = scenResult(sc); const Y = R.anos.find(a => a.ano === ano) || R.anos[1]; const C = scenDet(Y);
     const rows = simRows(); const docs = new Set(rows.map(r => r.docId)).size;
     const nDocs = simFonte() === 'planilha' ? planOps().length : S.xml.docs.length + S.efds.reduce((t, e) => t + e.docs.length + e.cte.length, 0);
     const varPct = Y.liqA ? (Y.liqN - Y.liqA) / Math.abs(Y.liqA) * 100 : null;
     const ctrl = `<div class="card"><div class="card-b"><div class="row"><span class="muted" style="width:110px">Exercício</span><div class="seg">${ANOS.map(y => `<button class="${ano === y ? 'on' : ''}" data-act="sim-ano" data-v="${y}">${y}</button>`).join('')}</div><span class="muted">Cenário</span>${cenSelect()}<span class="badge ${Y.premissa.tipoCbs === 'lei' && Y.premissa.tipoIbs === 'lei' ? 'ok' : 'warn'}">${Y.premissa.tipoCbs === 'lei' && Y.premissa.tipoIbs === 'lei' ? 'alíquotas de lei' : 'contém premissas'}</span><a class="btn sm ghost" href="#cenarios">Gerenciar cenários</a></div>
-      <div class="row" style="margin-top:10px;gap:8px"><span class="muted" style="width:110px">Fonte</span><div class="seg">${['efdx', 'xml', 'planilha'].filter(k => k === 'efdx' ? S.efds.length : k === 'xml' ? S.xml.docs.length : temPlan()).map(k => `<button class="${simFonte() === k ? 'on' : ''}" data-act="sim-fonte" data-v="${k}">${FONTE_LBL[k]}</button>`).join('')}</div></div><div class="muted" style="font-size:12px;margin-top:8px">${simFonte() === 'planilha' ? '<b>Planilha de operações</b> (premissas do usuário, equivalente mensal). ' : ''}Valores anualizados (período importado de ${R.meses} mês(es) × ${fmtN(R.anualizacao, 2)})${(+sc.crescimentoPct || 0) ? ' com crescimento de ' + fmtN(+sc.crescimentoPct, 1) + '% a.a.' : ''}. Cenário de preço: ${sc.cenarioPreco === 'neutro' ? 'neutralidade de receita' : 'preços mantidos'}.</div></div></div><div style="height:14px"></div>`;
+      <div class="row" style="margin-top:10px;gap:8px"><span class="muted" style="width:110px">Fonte</span><div class="seg">${['efdx', 'xml', 'planilha'].filter(k => k === 'efdx' ? temEfd() : k === 'xml' ? S.xml.docs.length : temPlan()).map(k => `<button class="${simFonte() === k ? 'on' : ''}" data-act="sim-fonte" data-v="${k}">${FONTE_LBL[k]}</button>`).join('')}</div></div><div class="muted" style="font-size:12px;margin-top:8px">${simFonte() === 'planilha' ? '<b>Planilha de operações</b> (premissas do usuário, equivalente mensal). ' : ''}Valores anualizados (período importado de ${R.meses} mês(es) × ${fmtN(R.anualizacao, 2)})${(+sc.crescimentoPct || 0) ? ' com crescimento de ' + fmtN(+sc.crescimentoPct, 1) + '% a.a.' : ''}. Cenário de preço: ${sc.cenarioPreco === 'neutro' ? 'neutralidade de receita' : 'preços mantidos'}.</div></div></div><div style="height:14px"></div>`;
     const KS = [['icms', 'ICMS'], ['iss', 'ISS'], ['st', 'ICMS-ST'], ['ipi', 'IPI'], ['pis', 'PIS'], ['cofins', 'COFINS'], ['cbs', 'CBS'], ['ibs', 'IBS'], ['is', 'IS']];
     const f = R.anualizacao * SCN.fatorCrescimento(sc, ano);
     const grp = (key, lab) => { const m = new Map(); for (const L of C.linhas) { if (!['debito', 'credito', 'estorno_debito', 'estorno_credito'].includes(L.papel)) continue; const k = key(L) || '(vazio)'; const sg = (L.papel === 'credito' || L.papel === 'estorno_debito') ? -1 : 1; m.set(k, (m.get(k) || 0) + sg * (L.somaN - L.somaA)); } return [...m.entries()].sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 8).map(([k, v]) => ({ l: lab ? lab(k) : k, v: Math.round(v * f), c: v > 0 ? 'var(--err)' : 'var(--ok)' })); };
@@ -5785,7 +6108,7 @@ table.t tr.sel td{background:var(--accent-bg)}
     const R = { titulo: REPORTS.find(r => r.id === id).t, subtitulo: 'Reforma Tributária Simulator — ' + S.config.projeto, meta: repMeta(), avisos: avisoBase(), secoes: [] };
     if (!has && id !== 'cenarios') { R.secoes.push({ titulo: 'Sem dados', tipo: 'texto', texto: 'Nenhum documento importado na sessão.' }); return R; }
     if (id === 'executivo') {
-      const SR = scenResult(sc); const Y = SR.anos.find(a => a.ano === ano); const C = Y._cmp;
+      const SR = scenResult(sc); const Y = SR.anos.find(a => a.ano === ano); const C = scenDet(Y);
       const v = Y.liqA ? (Y.liqN - Y.liqA) / Math.abs(Y.liqA) * 100 : null;
       if (Y.validar) R.avisos.push(money(Y.validar) + ' (anualizado) estão em enquadramentos "Sem fundamento" — NECESSITA DE VALIDAÇÃO NA LEGISLAÇÃO/TABELA OFICIAL VIGENTE.'); if (Y.sit) { const tt = Object.values(Y.sit).reduce((a, b) => a + b, 0) || 1; R.avisos.push('Situação dos enquadramentos (por valor): Confirmado ' + fmtN(Y.sit.confirmado / tt * 100, 1) + '% · Conferir ' + fmtN(Y.sit.conferir / tt * 100, 1) + '% · Escolher enquadramento ' + fmtN(Y.sit.decidir / tt * 100, 1) + '% · Sem fundamento ' + fmtN(Y.sit.sem_base / tt * 100, 1) + '%.'); }
       R.secoes.push({ titulo: 'Indicadores ' + ano + ' (anualizados)', tipo: 'kpis', itens: [{ l: 'Vendas', v: money(Y.vendas), raw: Y.vendas / 100, rawType: 'money' }, { l: 'Compras', v: money(Y.compras), raw: Y.compras / 100, rawType: 'money' }, { l: 'CBS estimada', v: money(Y.cbs), raw: Y.cbs / 100, rawType: 'money' }, { l: 'IBS estimado', v: money(Y.ibs), raw: Y.ibs / 100, rawType: 'money' }, { l: 'Débitos projetados (CBS+IBS+IS)', v: money(Y.debitos), raw: Y.debitos / 100, rawType: 'money' }, { l: 'Créditos projetados', v: money(Y.creditosCred), raw: Y.creditosCred / 100, rawType: 'money' }, { l: 'Carga tributária atual', v: fmtN(Y.cargaA, 2) + '%', raw: Y.cargaA, rawType: 'pct', s: 'débitos ÷ vendas' }, { l: 'Carga tributária ' + ano, v: fmtN(Y.cargaN, 2) + '%', raw: Y.cargaN, rawType: 'pct' }, { l: 'Carga líquida atual', v: money(Y.liqA), raw: Y.liqA / 100, rawType: 'money' }, { l: 'Carga líquida ' + ano, v: money(Y.liqN), raw: Y.liqN / 100, rawType: 'money' }, { l: 'Variação tributária', v: v === null ? '—' : fmtN(v, 2) + '%', raw: v, rawType: 'pct' }, { l: 'Impacto financeiro anual', v: money(Y.dif), raw: Y.dif / 100, rawType: 'money', s: Y.dif > 0 ? 'aumento de carga' : 'redução de carga' }] });
@@ -5895,6 +6218,7 @@ table.t tr.sel td{background:var(--accent-bg)}
       case 'cruz-sev': S.ui.cruzSev = el.dataset.v; if (TBL.cxdifs) TBL.cxdifs.page = 0; render(); break;
       case 'run-cross': { const b = el; b.innerHTML = '<span class="spin"></span> Cruzando…'; await new Promise(r => setTimeout(r, 30)); const t0 = Date.now(); S.cruzamento = RTS.cruzar(S.xml, S.efds, { tol: S.config.tol }); logImp('Cruzamento', '—', S.cruzamento.resumo.totalDifs + ' divergência(s)', (Date.now() - t0) + ' ms'); markDirty(); toast('ok', 'Cruzamento concluído: ' + S.cruzamento.resumo.conciliados + ' conciliado(s), ' + S.cruzamento.resumo.totalDifs + ' divergência(s).'); render(); break; }
       case 'efd-open': S.ui.efdSel = el.dataset.id; location.hash = '#base-efd'; break;
+      case 'efc-remove': { const C = S.contribs.find(e => e.id === el.dataset.id); if (C && await confirmBox('Remover EFD-Contribuições?', 'Remover <b>' + esc(C.file) + '</b> da sessão.', 'Remover', true)) { S.contribs = S.contribs.filter(e => e !== C); invalidate(); markDirty(); render(); } break; }
       case 'efd-remove': { const R = S.efds.find(e => e.id === el.dataset.id); if (R && await confirmBox('Remover escrituração?', 'Remover <b>' + esc(R.file) + '</b> da sessão.', 'Remover', true)) { S.efds = S.efds.filter(e => e !== R); S.cruzamento = null; markDirty(); render(); } break; }
       case 'efd-sel': break;
       case 'raw-page': S.ui.rawPage = +el.dataset.v; render(); break;
@@ -5907,7 +6231,7 @@ table.t tr.sel td{background:var(--accent-bg)}
       case 'autosave': S.config.autosave = el.dataset.v === '1'; if (store) { if (S.config.autosave) { ultimoSalvo = ''; salvarAgora(); } else { store.setItem(PK, JSON.stringify({ salvoEm: new Date().toISOString(), dados: { v: 1, config: { autosave: false } } })); store.removeItem(PK_LOTE); } } updateSalvo(); render(); break;
       case 'valid-backup': await saveFile('validacoes-regras-' + slug(S.config.projeto) + '-' + stamp() + '.json', JSON.stringify({ format: 'REFORMA-TRIBUTARIA-SIMULATOR/VALIDACOES', salvoEm: new Date().toISOString(), dados: snapshot() }, null, 1)); break;
       case 'autosave-limpar': if (await confirmBox('Apagar os dados salvos?', 'Validações, regras ajustadas, premissas, fornecedores, cenários e a planilha guardados neste navegador serão apagados. O que está aberto agora continua na tela até você fechar o app.', 'Apagar', true)) { limparSalvo(); toast('info', 'Dados salvos apagados deste navegador.'); render(); } break;
-      case 'clear-all': if (await confirmBox('Encerrar a sessão?', 'Todos os dados importados, cruzamentos e histórico serão apagados da memória. Exporte o projeto antes se quiser reabri-lo depois.', 'Apagar tudo', true)) { S.xml = new RTS.XmlStore(); S.efds = []; S.cruzamento = null; S.log = []; S.dirty = false; S.ui.lastXml = null; carregarEmbutida(); CLF.setSessao(S.classTab, S.classDecisoes, S.fornecedores); invalidate(); updateChrome(); render(); toast('info', 'Validações e regras foram mantidas. Sessão encerrada.'); } break;
+      case 'clear-all': if (await confirmBox('Encerrar a sessão?', 'Todos os dados importados, cruzamentos e histórico serão apagados da memória. Exporte o projeto antes se quiser reabri-lo depois.', 'Apagar tudo', true)) { S.xml = new RTS.XmlStore(); S.efds = []; S.contribs = []; S.cruzamento = null; S.log = []; S.dirty = false; S.ui.lastXml = null; carregarEmbutida(); CLF.setSessao(S.classTab, S.classDecisoes, S.fornecedores); invalidate(); updateChrome(); render(); toast('info', 'Validações e regras foram mantidas. Sessão encerrada.'); } break;
       case 'export-xml-json': saveFile('base-xml-' + stamp() + '.json', JSON.stringify(S.xml.toJSON())); break;
       case 'run-tests': { el.innerHTML = '<span class="spin"></span> Executando…'; await new Promise(r => setTimeout(r, 30)); const t0 = Date.now(); const res = await RTS_TESTS.run(); S.ui.tests = { res, ms: Date.now() - t0 }; render(); const f = res.filter(x => !x.ok).length; toast(f ? 'err' : 'ok', f ? f + ' teste(s) falharam.' : 'Todos os ' + res.length + ' testes aprovados.'); break; }
       case 'rep-view': { const R = buildReport(el.dataset.id); drawer(esc(R.titulo), '<div class="rep-prev">' + reportHtml(R) + '</div>', esc(R.subtitulo)); const d = document.querySelector('#drawer .drawer'); if (d) d.classList.add('wide'); break; }
@@ -6001,7 +6325,7 @@ table.t tr.sel td{background:var(--accent-bg)}
     });
     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
     window.addEventListener('hashchange', go);
-    window.addEventListener('beforeunload', e => { if (S.dirty && (S.xml.docs.length || S.efds.length || S.lote)) { e.preventDefault(); e.returnValue = ''; } });
+    window.addEventListener('beforeunload', e => { if (S.dirty && (S.xml.docs.length || temEfd() || S.lote)) { e.preventDefault(); e.returnValue = ''; } });
   }
 
   /* =================================================================== */
@@ -6059,5 +6383,5 @@ table.t tr.sel td{background:var(--accent-bg)}
 </script>
 <script>/* PWA: só quando servido por http(s) (GitHub Pages); no arquivo local não faz nada */
 (function(){if(!('serviceWorker' in navigator)||location.protocol==='file:')return;navigator.serviceWorker.register('sw.js').catch(function(){});
-var V='2026.11.17-1610';fetch('versao.json?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){if(j&&j.versao&&j.versao!==V){var b=document.createElement('div');b.style.cssText='position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:99999;background:#0b1a24;color:#e6f1f5;border:1px solid #2bc4ae;border-radius:10px;padding:10px 14px;font:13px system-ui;box-shadow:0 8px 30px rgba(0,0,0,.35)';b.innerHTML='Nova versão disponível ('+j.versao+'). <a href="#" style="color:#2bc4ae;font-weight:600;margin-left:8px">Atualizar</a>';b.querySelector('a').onclick=function(e){e.preventDefault();try{window.RTS_APP&&RTS_APP.salvarAgora&&RTS_APP.salvarAgora()}catch(_){}(window.caches?caches.keys().then(function(k){return Promise.all(k.map(function(x){return caches.delete(x)}))}):Promise.resolve()).finally(function(){location.reload()})};document.body.appendChild(b)}}).catch(function(){});})();</script></body>
+var V='2026.11.17-1729';fetch('versao.json?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){if(j&&j.versao&&j.versao!==V){var b=document.createElement('div');b.style.cssText='position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:99999;background:#0b1a24;color:#e6f1f5;border:1px solid #2bc4ae;border-radius:10px;padding:10px 14px;font:13px system-ui;box-shadow:0 8px 30px rgba(0,0,0,.35)';b.innerHTML='Nova versão disponível ('+j.versao+'). <a href="#" style="color:#2bc4ae;font-weight:600;margin-left:8px">Atualizar</a>';b.querySelector('a').onclick=function(e){e.preventDefault();try{window.RTS_APP&&RTS_APP.salvarAgora&&RTS_APP.salvarAgora()}catch(_){}(window.caches?caches.keys().then(function(k){return Promise.all(k.map(function(x){return caches.delete(x)}))}):Promise.resolve()).finally(function(){location.reload()})};document.body.appendChild(b)}}).catch(function(){});})();</script></body>
 </html>

@@ -2157,22 +2157,24 @@ table.t tr.sel td{background:var(--accent-bg)}
   const chave = (ctx, nat) => [String(ctx.ncm || '').replace(/\D/g, '') || (ctx.nbs ? 'NBS' + String(ctx.nbs).replace(/\D/g, '') : (ctx.servico ? 'SERV' : '')), nat || ctx.natureza || '', ctx.sentido || 'S', ctx.destinatario || '*', ctx.destinacao || '*'].join('|');
   /** Usado pelo motor de regras: escolha registrada pelo usuário para o contexto. */
   function escolhaUsuario(ctx, nat) { const d = sessao.decisoes[chave(ctx, nat)]; return d ? d.regraId : null; }
+  /** Validação do contexto exato; se não houver, a validação feita na Central para "qualquer destinação/contraparte" vale para o item. */
+  function decisaoUsuario(ctx, nat) { const D = sessao.decisoes; return D[chave(ctx, nat)] || D[chave(Object.assign({}, ctx, { destinacao: '*' }), nat)] || D[chave(Object.assign({}, ctx, { destinatario: '*', destinacao: '*' }), nat)] || null; }
   /**
    * Anota o resultado do motor com a tabela oficial e a situação do enquadramento.
    * enq: 'validada' (usuário confirmou), 'pendente' (mais de uma possibilidade ou aplicação condicionada — requer validação), 'sugerida' (única possibilidade).
    */
   function anotar(out, ctx, info) {
-    const k = chave(ctx, out.natureza); const dec = sessao.decisoes[k];
+    const k = chave(ctx, out.natureza); const dec = decisaoUsuario(ctx, out.natureza);
     const r = out.regra;
     out.chave = k;
     out.tabela = avaliar(sessao.tab, out.cst, out.cClassTrib, ctx.data, ctx.dfe);
     out.oficial = out.tabela.cls || null;
     const codigos = new Set([out.cClassTrib].concat(out.alternativas.filter(a => a.contexto !== 'compatível' || a.condicional).map(a => a.cClassTrib)).filter(Boolean));
     const ambiguo = (info && info.contexto !== 'compatível') || out.alternativas.some(a => a.contexto !== 'compatível' && a.cClassTrib && a.cClassTrib !== out.cClassTrib) || codigos.size > 1;
-    if (dec && r && dec.regraId === r.id) { out.enq = 'validada'; out.decisao = dec; }
+    if (dec && r && dec.regraId === r.id && (!dec.cClassTrib || !r.cClassTrib || dec.cClassTrib === r.cClassTrib)) { out.enq = 'validada'; out.decisao = dec; }
     else if (ambiguo || out.condicional || !r || out.status === 'necessita_validacao') out.enq = 'pendente';
     else out.enq = 'sugerida';
-    if (dec && (!r || dec.regraId !== r.id)) out.mensagens.push('A validação registrada para este contexto (' + dec.regraId + ') não se aplica mais — revalide.');
+    if (dec && (!r || dec.regraId !== r.id) && !out.mensagens.some(m => m.indexOf('desatualizada') >= 0)) out.mensagens.push('A validação registrada para este contexto (' + dec.regraId + ') não se aplica mais — revalide.');
     if (out.tabela.sit === 'ausente' || out.tabela.sit === 'restricao') out.mensagens.push(...out.tabela.problemas);
     for (const a of out.alternativas) { const t = avaliar(sessao.tab, a.cst, a.cClassTrib, ctx.data); a.tabSit = t.sit; a.oficial = t.cls ? (t.cls.nome || t.cls.descricao) : ''; a.oficialFund = t.cls ? t.cls.artigo : ''; a.oficialLink = t.cls ? t.cls.link : ''; }
     return out;
@@ -2243,7 +2245,7 @@ table.t tr.sel td{background:var(--accent-bg)}
     return '﻿' + rows.join('\r\n');
   }
 
-  root.RTS_CLASS = { IND, IND_CST, IND_CCT, FIELDS, DFE_LIST, norm, flag, numPct, dataISO, tipoAliq, parseCSV, readXlsx, unzip, flattenJSON, lerArquivo, mapear, interpretar, tabelaEmbutida, hash, diff, filtrar, consultar, consultarCst, indicadoresDe, avaliar, sessao, setSessao, contraparte, chave, escolhaUsuario, anotar, ENQ_LBL, TAB_LBL, SIT, situacao, conferirXml, exportarCSV, decodeText };
+  root.RTS_CLASS = { decisaoUsuario, IND, IND_CST, IND_CCT, FIELDS, DFE_LIST, norm, flag, numPct, dataISO, tipoAliq, parseCSV, readXlsx, unzip, flattenJSON, lerArquivo, mapear, interpretar, tabelaEmbutida, hash, diff, filtrar, consultar, consultarCst, indicadoresDe, avaliar, sessao, setSessao, contraparte, chave, escolhaUsuario, anotar, ENQ_LBL, TAB_LBL, SIT, situacao, conferirXml, exportarCSV, decodeText };
 })(typeof window !== 'undefined' ? window : globalThis);
 
 </script>
@@ -2454,7 +2456,7 @@ table.t tr.sel td{background:var(--accent-bg)}
     const n = +c.slice(1), d = c[0];
     if (d === '7') return 'exportacao';
     if (d === '3') return 'compra';
-    if ([151, 152, 153, 155, 156, 408, 409, 552, 557, 658, 659].includes(n)) return 'transferencia';
+    if ([151, 152, 153, 155, 156, 208, 209, 408, 409, 552, 557, 658, 659].includes(n)) return 'transferencia';
     const saida = d === '5' || d === '6';
     if (saida && (n === 501 || n === 502)) return 'exportacao_indireta'; // remessa com fim específico de exportação (5501/5502/6501/6502)
     const devS = (n >= 201 && n <= 210) || (n >= 410 && n <= 413) || [503, 553, 555, 556, 660, 661, 662, 918, 919].includes(n);
@@ -2610,8 +2612,12 @@ table.t tr.sel td{background:var(--accent-bg)}
     const esp = cand.filter(c => c.regra.prioridade > 0 && c.regra.efeito.tipo !== 'credito_presumido' && (c.especificidade > 0 || c.contexto === 'compatível')); // regra genérica (todos os NCM) que depende de contexto não informado nunca vence
     let escolhida = firm[0] || esp[0] || cand.find(c => c.contexto === 'compatível') || cand[0] || null;
     // escolha registrada pelo usuário (Central de Classificações) prevalece quando o enquadramento ainda é possível
-    const CL = root.RTS_CLASS; const esc = ctx.escolha || (CL ? CL.escolhaUsuario(Object.assign({}, ctx, { ncm, sentido }), nat) : null);
-    if (esc) { const e = cand.find(c => c.regra.id === esc); if (e) escolhida = e; }
+    const CL = root.RTS_CLASS; let esc = ctx.escolha || null, escObsoleta = null, escGeral = false;
+    if (!esc && CL) { const dec = CL.decisaoUsuario ? CL.decisaoUsuario(Object.assign({}, ctx, { ncm, sentido }), nat) : null;
+      if (dec) { const e = cand.find(c => c.regra.id === dec.regraId);
+        // validação registrada com outro cClassTrib (a regra mudou depois) não vale mais: o motor volta a decidir e pede revalidação
+        if (e && dec.cClassTrib && e.regra.cClassTrib && dec.cClassTrib !== e.regra.cClassTrib) escObsoleta = dec; else esc = dec.regraId; } }
+    if (esc) { const e = cand.find(c => c.regra.id === esc); if (e) { escGeral = e.regra.prioridade <= 0 && !!(firm[0] || esp[0]) && (firm[0] || esp[0]).regra.id !== e.regra.id; escolhida = e; } }
     const r = escolhida && escolhida.regra;
     const out = {
       ncm, nbs, natureza: nat, naturezaDesc: NAT[nat], regra: r, alternativas: cand.filter(c => c !== escolhida).map(c => ({ id: c.regra.id, nome: c.regra.nome, contexto: c.contexto, cst: c.regra.cst, cClassTrib: c.regra.cClassTrib, pRedCBS: c.regra.efeito.pRedCBS, status: c.regra.status, condicional: !!c.regra.condicional, condicoes: c.regra.condicoes || [], fonte: c.regra.fonte, tipo: c.regra.efeito.tipo })),
@@ -2625,6 +2631,8 @@ table.t tr.sel td{background:var(--accent-bg)}
       if (escolhida.contexto !== 'compatível' && !esc) out.mensagens.push('Regra escolhida ' + escolhida.contexto + ' — informe o contexto da operação.');
       if (out.alternativas.some(a => a.contexto !== 'compatível')) out.mensagens.push('Há enquadramento alternativo que depende do destinatário ou da destinação do produto.');
     }
+    if (escObsoleta) out.mensagens.push('A validação registrada (' + escObsoleta.regraId + ', cClassTrib ' + escObsoleta.cClassTrib + ') ficou desatualizada porque a regra mudou — foi desconsiderada; revalide na Central de Classificações.');
+    if (escGeral) out.mensagens.push('Validação manual escolheu a regra geral, afastando o enquadramento específico do motor (' + ((firm[0] || esp[0]).regra.nome) + '). Confirme se é isso mesmo.');
     if (ctx.servico) { if (nbs && nbs.length !== 9) out.mensagens.push('Código NBS com menos de 9 dígitos.'); }
     else if (!ncm || ncm.length !== 8) out.mensagens.push('NCM ausente ou com menos de 8 dígitos.');
     out.contexto = escolhida ? escolhida.contexto : '';
@@ -3019,10 +3027,13 @@ table.t tr.sel td{background:var(--accent-bg)}
       const cp = C ? Math.round(vo * C / (1 + C)) : 0;
       // repartição CBS/IBS proporcional às alíquotas do ano
       const PA = opts._P && opts._Pano === ano ? opts._P : RR.premissaAno(opts.premissas, ano); const tot = (PA.cbs + PA.ibs) || 1; cbs = Math.round(cp * PA.cbs / tot); ibs = cp - cbs;
-      status = 'presumido'; motivo.push(C ? 'Crédito presumido (art. 168): CP = VO × C ÷ (1 + C), C = ' + pc + '% (premissa).' : 'Crédito presumido (art. 168) — percentual de ' + ano + ' não publicado; informe a premissa. ' + RR.MSG_VALID);
+      status = 'presumido'; if (s.tipo === 'reducao' && s.pRed === 100) motivo.push('Item com alíquota zero na venda: conferir se o crédito presumido do art. 168 alcança esta aquisição. ' + RR.MSG_VALID); motivo.push(C ? 'Crédito presumido (art. 168): CP = VO × C ÷ (1 + C), C = ' + pc + '% (premissa).' : 'Crédito presumido (art. 168) — percentual de ' + ano + ' não publicado; informe a premissa. ' + RR.MSG_VALID);
     } else if (tipoF === 'simples') {
       const pc = Number(opts.simplesPct || 0);
       cbs = Math.round((row.vItem - (row.vDesc || 0)) * pc / 100 * (s.aCBS / ((s.aCBS + s.aIBS) || 1))); ibs = Math.round((row.vItem - (row.vDesc || 0)) * pc / 100) - cbs;
+      // o crédito não pode superar o IBS/CBS da própria operação: item com alíquota zero (ou reduzida) limita o crédito da premissa
+      if (cbs > (s.cbs || 0)) cbs = Math.max(0, s.cbs || 0); if (ibs > (s.ibs || 0)) ibs = Math.max(0, s.ibs || 0);
+      if (s.tipo === 'reducao' && s.pRed === 100) motivo.push('Item com alíquota zero: não há IBS/CBS a creditar.');
       status = 'potencial'; motivo.push('Fornecedor do Simples Nacional: crédito limitado ao IBS/CBS recolhido no regime (premissa de ' + pc + '% do valor). ' + RR.MSG_VALID);
     } else {
       cbs = s.cbs; ibs = s.ibs;
@@ -4391,6 +4402,10 @@ table.t tr.sel td{background:var(--accent-bg)}
     await T('Créditos', 'Produtor rural não contribuinte: presumido CP = VO×C/(1+C)', () => { const c = CRL({ ncm: '01029000', cfop: '1101', partDoc: '12345678909', vICMS: 0, vPIS: 0, vCOFINS: 0 }, { presumidoPct: { 2027: 4 } }); return eq(c.status, 'presumido') && eq(c.credito, Math.round(300000 * 0.04 / 1.04)); });
     await T('Créditos', 'Presumido sem percentual publicado → zero e aviso de validação', () => { const c = CRL({ partDoc: '12345678909' }); return eq(c.credito, 0) && eq(c.motivo.some(m => m.includes('NECESSITA')), true); });
     await T('Créditos', 'Fornecedor do Simples: crédito pela premissa, potencial', () => { const c = CRL({}, { fornecedores: { '33444555000188': 'simples' }, simplesPct: 5 }); return eq(c.status, 'potencial') && eq(c.credito, 15000); });
+    await T('Créditos', 'Devolução de transferência (x208/x209) é transferência, não devolução de venda/compra', () => eq(RR.natureza('1209'), 'transferencia') && eq(RR.natureza('5208'), 'transferencia') && eq(RR.natureza('1202'), 'devolucao'));
+    await T('Créditos', 'Simples: item com alíquota zero (frango 0207.14.24) não gera crédito', () => { const c = CRL({ ncm: '02071424', cfop: '1102' }, { fornecedores: { '33444555000188': 'simples' }, simplesPct: 5 }); return eq(c.credito, 0); });
+    await T('Créditos', 'Compra de frango 0207.14.24 (Anexo I) de fornecedor regular → crédito zero', () => { const c = CRL({ ncm: '02071424', cfop: '1101' }); return eq(c.credito, 0) && eq(c.cClassTrib, '200003'); });
+    await T('Classificações', 'Validação com cClassTrib antigo é desconsiderada (regra mudou)', () => { const ctx = { ncm: '02071424', cfop: '1101', sentido: 'E', data: '2027-03-01' }; const k = ['02071424', 'compra', 'E', '*', '*'].join('|'); CLS.setSessao(null, { [k]: { regraId: 'LC214-GERAL', cClassTrib: '200038' } }); const a = RR.classificar(regras, ctx); CLS.setSessao(null, { [k]: { regraId: 'LC214-GERAL', cClassTrib: '000001' } }); const b = RR.classificar(regras, ctx); CLS.setSessao(null, {}); return eq(a.cClassTrib, '200003') && eq(a.mensagens.some(m => m.includes('desatualizada')), true) && eq(b.cClassTrib, '000001') && eq(b.mensagens.some(m => m.includes('regra geral')), true); });
     await T('Créditos', 'Uso pessoal: bebida alcoólica exige verificação; marcação manual veda', () => eq(CRL({ ncm: '22042100' }).status, 'potencial') && eq(CRL({}, { vedados: { x: true } }).status, 'sem_credito'));
     await T('Créditos', 'Aquisição com alíquota zero não gera crédito', () => eq(CRL({ ncm: '02013000', cfop: '1102' }).credito, 0));
     await T('Créditos', 'Custo financeiro da espera pela extinção do débito', () => eq(CR.custoFinanceiro(100000, 30, 1), 1000) && eq(CR.custoFinanceiro(100000, 45, 2), 3000));
@@ -6899,7 +6914,15 @@ table.t tr.sel td{background:var(--accent-bg)}
     if (r && Array.isArray(r.ncm) && !r.ncm.includes('')) { for (const n of ['2301', '23080000']) if (!r.ncm.some(x => n.startsWith(x) || x.startsWith(n))) r.ncm.push(n); const o = regraOriginal('LC214-AIX-FARELOS'); if (o && /2302 a 23\.06|23\.02 a 23\.06/.test(r.nome)) r.nome = o.nome; invalidate(); }
     try { if (st) st.setItem(FLAG, new Date().toISOString()); } catch (e) {}
   }
-  function boot() { const rest = restaurarSalvo(); const fixG = corrigirRegraGeral(); atualizarFarelos(); shell(); bindGlobal(); go(); getDl(); updateSalvo(); setInterval(salvarAgora, 1500); window.addEventListener('beforeunload', salvarAgora); if (rest && (rest.nDec || rest.nReg || rest.lote)) setTimeout(() => toast('ok', 'Restaurado deste navegador: ' + [rest.nDec ? rest.nDec + ' validação(ões)' : '', rest.nReg ? rest.nReg + ' regra(s) ajustada(s)' : '', rest.lote ? 'planilha de operações' : ''].filter(Boolean).join(', ') + '.'), 300); if (fixG) setTimeout(() => { try { salvarAgora(); } catch (e) {} toast('warn', fixG); }, 900); }
+  /** Remove validações da Central que apontam para regra inexistente ou registrada com outro cClassTrib (a regra mudou depois da validação). */
+  function limparDecisoesObsoletas() {
+    const D = S.classDecisoes || {}; let n = 0;
+    for (const k of Object.keys(D)) { const d = D[k]; const r = S.regras.find(x => x.id === d.regraId);
+      if (!r || (d.cClassTrib && r.cClassTrib && d.cClassTrib !== r.cClassTrib)) { delete D[k]; n++; } }
+    if (n) { try { syncClass(); } catch (e) {} invalidate(); }
+    return n;
+  }
+  function boot() { const rest = restaurarSalvo(); const fixG = corrigirRegraGeral(); atualizarFarelos(); const nObs = limparDecisoesObsoletas(); shell(); bindGlobal(); go(); getDl(); updateSalvo(); setInterval(salvarAgora, 1500); window.addEventListener('beforeunload', salvarAgora); if (rest && (rest.nDec || rest.nReg || rest.lote)) setTimeout(() => toast('ok', 'Restaurado deste navegador: ' + [rest.nDec ? rest.nDec + ' validação(ões)' : '', rest.nReg ? rest.nReg + ' regra(s) ajustada(s)' : '', rest.lote ? 'planilha de operações' : ''].filter(Boolean).join(', ') + '.'), 300); if (fixG) setTimeout(() => { try { salvarAgora(); } catch (e) {} toast('warn', fixG); }, 900); if (nObs) setTimeout(() => { try { salvarAgora(); } catch (e) {} toast('warn', nObs + ' validação(ões) da Central estavam presas a uma versão antiga da regra (outro cClassTrib) e foram descartadas — o motor voltou a enquadrar esses itens. Revalide se necessário.'); }, 1500); }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
   window.RTS_APP = { S, salvarAgora, restaurarSalvo, limparSalvo, act, importXmlFiles, importEfdFiles, loadSample, render, go, buildReport, _estab: (l, f) => estabResumo(l, f), _scen: () => scenResult(cenAtivo()) };
@@ -6908,5 +6931,5 @@ table.t tr.sel td{background:var(--accent-bg)}
 </script>
 <script>/* PWA: só quando servido por http(s) (GitHub Pages); no arquivo local não faz nada */
 (function(){if(!('serviceWorker' in navigator)||location.protocol==='file:')return;navigator.serviceWorker.register('sw.js').catch(function(){});
-var V='2026.11.18-1113';fetch('versao.json?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){if(j&&j.versao&&j.versao!==V){var b=document.createElement('div');b.style.cssText='position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:99999;background:#0b1a24;color:#e6f1f5;border:1px solid #2bc4ae;border-radius:10px;padding:10px 14px;font:13px system-ui;box-shadow:0 8px 30px rgba(0,0,0,.35)';b.innerHTML='Nova versão disponível ('+j.versao+'). <a href="#" style="color:#2bc4ae;font-weight:600;margin-left:8px">Atualizar</a>';b.querySelector('a').onclick=function(e){e.preventDefault();try{window.RTS_APP&&RTS_APP.salvarAgora&&RTS_APP.salvarAgora()}catch(_){}(window.caches?caches.keys().then(function(k){return Promise.all(k.map(function(x){return caches.delete(x)}))}):Promise.resolve()).finally(function(){location.reload()})};document.body.appendChild(b)}}).catch(function(){});})();</script></body>
+var V='2026.11.18-1200';fetch('versao.json?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){if(j&&j.versao&&j.versao!==V){var b=document.createElement('div');b.style.cssText='position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:99999;background:#0b1a24;color:#e6f1f5;border:1px solid #2bc4ae;border-radius:10px;padding:10px 14px;font:13px system-ui;box-shadow:0 8px 30px rgba(0,0,0,.35)';b.innerHTML='Nova versão disponível ('+j.versao+'). <a href="#" style="color:#2bc4ae;font-weight:600;margin-left:8px">Atualizar</a>';b.querySelector('a').onclick=function(e){e.preventDefault();try{window.RTS_APP&&RTS_APP.salvarAgora&&RTS_APP.salvarAgora()}catch(_){}(window.caches?caches.keys().then(function(k){return Promise.all(k.map(function(x){return caches.delete(x)}))}):Promise.resolve()).finally(function(){location.reload()})};document.body.appendChild(b)}}).catch(function(){});})();</script></body>
 </html>

@@ -3309,7 +3309,7 @@ table.t tr.sel td{background:var(--accent-bg)}
       out.push(''); out.push(q(sec.titulo));
       if (sec.tipo === 'kpis') for (const k of sec.itens) out.push(q(k.l) + ';' + q(k.v) + ';' + q(k.s || ''));
       else if (sec.tipo === 'texto') out.push(q(sec.texto));
-      else { out.push(sec.cols.map(c => q(c.t)).join(';')); for (const r of sec.rows) out.push(sec.cols.map(c => { const v = cellText(c, r); if (c.type === 'money') return v === null || v === undefined || v === '' ? '' : (v < 0 ? '-' : '') + Math.floor(Math.abs(v) / 100) + ',' + String(Math.abs(v) % 100).padStart(2, '0'); if (c.type === 'num' || c.type === 'pct') return v === null || v === undefined || v === '' ? '' : String(v).replace('.', ','); return q(v); }).join(';')); }
+      else { out.push(sec.cols.map(c => q(c.t)).join(';')); for (const r of sec.rows) out.push(sec.cols.map(c => { const v = cellText(c, r); if (c.type === 'money') return v === null || v === undefined || v === '' ? '' : (v < 0 ? '-' : '') + Math.floor(Math.abs(v) / 100) + ',' + String(Math.abs(v) % 100).padStart(2, '0'); if (c.type === 'num' || c.type === 'pct') return v === null || v === undefined || v === '' ? '' : String(v).replace('.', ','); if (/^(ncm|cst|cclasstrib|cct|cctxml|cfop|nbs|cserv)$/i.test(c.k || '') && /^0\d*$/.test(String(v || ''))) return '="' + v + '"'; return q(v); }).join(';')); }
     }
     return '﻿' + out.join('\r\n');
   }
@@ -3436,6 +3436,372 @@ table.t tr.sel td{background:var(--accent-bg)}
   }
 
   root.RTS_REP = { xlsx, xlsxBook, csv, json, pdf, zip, crc32, fmtCell, winCodes };
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+/* =========================================================================
+ * Excel gerencial profissional (OOXML gerado no navegador, sem bibliotecas)
+ *  - Capa com índice clicável, painel de indicadores e avisos
+ *  - Cada tabela do relatório como Tabela do Excel (filtro, faixas, linha de totais com SUBTOTAL)
+ *  - Barras de dados nas colunas de saldo, formatos de moeda com negativos em vermelho
+ *  - Aba "Base de dados" (Tabela) + Tabelas Dinâmicas prontas ligadas a ela (atualizam ao abrir)
+ *  - Gráfico de colunas da projeção 2026–2033
+ *  - Impressão em paisagem, ajustada à largura, com cabeçalho e numeração de páginas
+ * ========================================================================= */
+(function (root) {
+  'use strict';
+  const REP = root.RTS_REP;
+  const enc = (s) => new TextEncoder().encode(s);
+  const X = (s) => String(s === null || s === undefined ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
+  const col = (i) => { let s = ''; i++; while (i > 0) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; };
+  const NS = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
+  const HEAD = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+
+  /* ---------- Estilos ---------- */
+  // Paleta: azul-petróleo escuro (cabeçalhos), turquesa (destaques), cinza-claro (painéis)
+  const C = { escuro: 'FF0E3A47', turq: 'FF1A9E8F', claro: 'FFF3F6F8', borda: 'FFD5DDE3', texto: 'FF1B2B34', cinza: 'FF6B7785', ambar: 'FFFFF4DF', ambarT: 'FF8A5A00', verdeC: 'FFE7F6F3' };
+  const S = { normal: 0, cab: 1, moeda: 2, int: 3, titulo: 4, pct: 5, negrito: 6, dec: 7, texto: 8, quebra: 9, sub: 10, kLbl: 11, kMoeda: 12, kTxt: 13, mLbl: 14, mVal: 15, aviso: 16, link: 17, faixa: 18, kPct: 19, totMoeda: 20, totLbl: 21, kSub: 22, idx: 23, totInt: 24 };
+  const STYLES = HEAD + `<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<numFmts count="4"><numFmt numFmtId="164" formatCode="0.00&quot;%&quot;"/><numFmt numFmtId="165" formatCode="#,##0.0000"/><numFmt numFmtId="166" formatCode="#,##0.00;[Red]\\-#,##0.00;\\-"/><numFmt numFmtId="167" formatCode="&quot;R$&quot; #,##0.00;[Red]\\-&quot;R$&quot; #,##0.00;&quot;R$&quot; \\-"/></numFmts>
+<fonts count="11"><font><sz val="10"/><color rgb="${C.texto}"/><name val="Calibri"/><family val="2"/></font><font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Calibri"/><family val="2"/></font><font><b/><sz val="20"/><color rgb="${C.escuro}"/><name val="Calibri"/><family val="2"/></font><font><i/><sz val="10"/><color rgb="${C.cinza}"/><name val="Calibri"/><family val="2"/></font><font><sz val="9"/><color rgb="${C.cinza}"/><name val="Calibri"/><family val="2"/></font><font><b/><sz val="15"/><color rgb="${C.escuro}"/><name val="Calibri"/><family val="2"/></font><font><b/><sz val="10"/><color rgb="${C.texto}"/><name val="Calibri"/><family val="2"/></font><font><u/><sz val="10"/><color rgb="FF1A5FC9"/><name val="Calibri"/><family val="2"/></font><font><b/><sz val="12"/><color rgb="FFFFFFFF"/><name val="Calibri"/><family val="2"/></font><font><sz val="10"/><color rgb="${C.ambarT}"/><name val="Calibri"/><family val="2"/></font><font><b/><sz val="11"/><color rgb="${C.escuro}"/><name val="Calibri"/><family val="2"/></font></fonts>
+<fills count="7"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="${C.escuro}"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="${C.claro}"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="${C.ambar}"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="${C.turq}"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="${C.verdeC}"/><bgColor indexed="64"/></patternFill></fill></fills>
+<borders count="4"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="${C.borda}"/></left><right style="thin"><color rgb="${C.borda}"/></right><top style="thin"><color rgb="${C.borda}"/></top><bottom style="thin"><color rgb="${C.borda}"/></bottom><diagonal/></border><border><left/><right/><top style="medium"><color rgb="${C.turq}"/></top><bottom/><diagonal/></border><border><left/><right/><top/><bottom style="medium"><color rgb="${C.turq}"/></bottom><diagonal/></border></borders>
+<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+<cellXfs count="25">
+<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+<xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>
+<xf numFmtId="166" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
+<xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
+<xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/>
+<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
+<xf numFmtId="0" fontId="6" fillId="0" borderId="0" xfId="0" applyFont="1"/>
+<xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
+<xf numFmtId="49" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
+<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf>
+<xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0" applyFont="1"/>
+<xf numFmtId="0" fontId="4" fillId="3" borderId="2" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="bottom" wrapText="1"/></xf>
+<xf numFmtId="167" fontId="5" fillId="3" borderId="3" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
+<xf numFmtId="0" fontId="5" fillId="3" borderId="3" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="6" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="top"/></xf>
+<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="9" fillId="4" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="7" fillId="0" borderId="0" xfId="0" applyFont="1"/>
+<xf numFmtId="0" fontId="8" fillId="5" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment vertical="center"/></xf>
+<xf numFmtId="164" fontId="5" fillId="3" borderId="3" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
+<xf numFmtId="166" fontId="6" fillId="6" borderId="2" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1"/>
+<xf numFmtId="0" fontId="6" fillId="6" borderId="2" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/>
+<xf numFmtId="0" fontId="4" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="10" fillId="0" borderId="3" xfId="0" applyFont="1" applyBorder="1"/>
+<xf numFmtId="3" fontId="6" fillId="6" borderId="2" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1"/>
+</cellXfs>
+<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles><dxfs count="0"/><tableStyles count="0" defaultTableStyle="TableStyleMedium2" defaultPivotStyle="PivotStyleMedium9"/></styleSheet>`;
+
+  const val = (c, r) => c.v ? c.v(r) : r[c.k];
+  const stOf = (c) => c.type === 'money' ? S.moeda : c.type === 'num' ? (c.d ? S.dec : S.int) : c.type === 'pct' ? S.pct : 0;
+  const num = (c, v) => v === null || v === undefined || v === '' || !isFinite(Number(v)) ? null : c.type === 'money' ? Number(v) / 100 : Number(v);
+
+  /* ---------- Planilha ---------- */
+  class Sheet {
+    constructor(name) { this.name = name; this.rows = []; this.widths = []; this.merges = []; this.links = []; this.cf = []; this.tables = []; this.pivots = []; this.drawing = null; this.freeze = null; this.grid = true; this.print = true; this.heights = {}; this.tab = null; this.zoom = null; }
+    set(r, c, v, s, t) { (this.rows[r] = this.rows[r] || [])[c] = { v, s, t }; }
+    width(c, w) { this.widths[c] = Math.max(this.widths[c] || 0, w); }
+    xml(relIds) {
+      const dimR = Math.max(1, this.rows.length), dimC = Math.max(1, ...this.rows.map(r => (r || []).length));
+      const views = `<sheetViews><sheetView workbookViewId="0"${this.grid ? '' : ' showGridLines="0"'}${this.zoom ? ` zoomScale="${this.zoom}" zoomScaleNormal="${this.zoom}"` : ''}${this.first ? ' tabSelected="1"' : ''}>${this.freeze ? `<pane ${this.freeze.c ? `xSplit="${this.freeze.c}" ` : ''}ySplit="${this.freeze.r}" topLeftCell="${col(this.freeze.c || 0)}${this.freeze.r + 1}" activePane="${this.freeze.c ? 'bottomRight' : 'bottomLeft'}" state="frozen"/>` : ''}</sheetView></sheetViews>`;
+      const cols = this.widths.length ? '<cols>' + this.widths.map((w, i) => w ? `<col min="${i + 1}" max="${i + 1}" width="${w.toFixed(1)}" customWidth="1"/>` : '').join('') + '</cols>' : '';
+      let data = '';
+      for (let ri = 0; ri < this.rows.length; ri++) {
+        const r = this.rows[ri]; if (!r && !this.heights[ri]) continue;
+        data += `<row r="${ri + 1}"${this.heights[ri] ? ` ht="${this.heights[ri]}" customHeight="1"` : ''}>`;
+        if (r) for (let ci = 0; ci < r.length; ci++) {
+          const c = r[ci]; if (!c) continue; const ref = col(ci) + (ri + 1), st = c.s ? ` s="${c.s}"` : '';
+          if (c.t === 'f') { data += `<c r="${ref}"${st}><f>${X(c.v.f)}</f>${c.v.v !== undefined && c.v.v !== null ? `<v>${c.v.v}</v>` : ''}</c>`; continue; }
+          if (c.v === null || c.v === undefined || c.v === '') { if (c.s) data += `<c r="${ref}"${st}/>`; continue; }
+          if (typeof c.v === 'number') { if (isFinite(c.v)) data += `<c r="${ref}"${st}><v>${c.v}</v></c>`; continue; }
+          data += `<c r="${ref}"${st} t="inlineStr"><is><t xml:space="preserve">${X(c.v)}</t></is></c>`;
+        }
+        data += '</row>';
+      }
+      const merges = this.merges.length ? `<mergeCells count="${this.merges.length}">${this.merges.map(m => `<mergeCell ref="${m}"/>`).join('')}</mergeCells>` : '';
+      const cf = this.cf.map((f, i) => `<conditionalFormatting sqref="${f}"><cfRule type="dataBar" priority="${i + 1}"><dataBar><cfvo type="min"/><cfvo type="max"/><color rgb="FF63C5B8"/></dataBar></cfRule></conditionalFormatting>`).join('');
+      const links = this.links.length ? `<hyperlinks>${this.links.map(l => `<hyperlink ref="${l.ref}" location="${X(l.loc)}" display="${X(l.txt)}"/>`).join('')}</hyperlinks>` : '';
+      const page = this.print ? `<printOptions horizontalCentered="1"/><pageMargins left="0.4" right="0.4" top="0.6" bottom="0.6" header="0.25" footer="0.25"/><pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/><headerFooter><oddHeader>&amp;L&amp;8${X(this.cab || '')}&amp;R&amp;8&amp;A</oddHeader><oddFooter>&amp;L&amp;8Reforma Tributária Simulator&amp;R&amp;8Página &amp;P de &amp;N</oddFooter></headerFooter>` : '';
+      const drawing = this.drawing ? `<drawing r:id="${relIds.drawing}"/>` : '';
+      const tparts = this.tables.length ? `<tableParts count="${this.tables.length}">${this.tables.map((t, i) => `<tablePart r:id="${relIds.tables[i]}"/>`).join('')}</tableParts>` : '';
+      const sheetPr = `<sheetPr>${this.tab ? `<tabColor rgb="${this.tab}"/>` : ''}<pageSetUpPr fitToPage="1"/></sheetPr>`;
+      return HEAD + `<worksheet ${NS}>${sheetPr}<dimension ref="A1:${col(dimC - 1)}${dimR}"/>${views}<sheetFormatPr defaultRowHeight="15"/>${cols}<sheetData>${data}</sheetData>${merges}${cf}${links}${page}${drawing}${tparts}</worksheet>`;
+    }
+  }
+
+  const nomeAba = (s, used) => { let n = String(s || 'Planilha').replace(/[\[\]:*?\/\\']/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 31) || 'Planilha'; const b = n; let i = 2; while (used.has(n.toLowerCase())) { const suf = ' (' + i++ + ')'; n = b.slice(0, 31 - suf.length) + suf; } used.add(n.toLowerCase()); return n; };
+  /** Nome curto para a aba: tira o ano e os parênteses e corta em palavra inteira (limite de 31 do Excel). */
+  const abaCurta = (t) => { const ps = String(t || '').split(' — '); let n = ps[0]; if (n.length < 14 && ps[1] && !/^\d{4}/.test(ps[1])) n += ' — ' + ps[1]; n = n.replace(/\s*\([^)]*\)/g, '').trim(); if (n.length > 31) { n = n.slice(0, 31); const k = n.lastIndexOf(' '); if (k > 15) n = n.slice(0, k); n = n.replace(/[\s,;:—-]+$/, ''); } return n; };
+  const ref = (aba, cel) => "'" + aba.replace(/'/g, "''") + "'!" + (cel || 'A1');
+  const unicos = (nomes) => { const u = new Set(); return nomes.map(n => { let b = String(n || 'Coluna').replace(/[\r\n]+/g, ' ').trim() || 'Coluna', x = b, i = 2; while (u.has(x.toLowerCase())) x = b + ' ' + i++; u.add(x.toLowerCase()); return x; }); };
+
+  /**
+   * Escreve uma Tabela do Excel a partir de (r0, c0). cols: [{k,t,type,v,d}] · retorna { r1 } (última linha usada).
+   * opts: { nome, totais: bool, barras: [k...], larguraMax }
+   */
+  function escreverTabela(sh, wb, r0, c0, cols, rows, opts) {
+    opts = opts || {};
+    const nomes = unicos(cols.map(c => c.t));
+    nomes.forEach((n, j) => { sh.set(r0, c0 + j, n, S.cab); sh.width(c0 + j, Math.min(opts.larguraMax || 48, Math.max(11, n.length * 0.95 + 3))); });
+    sh.heights[r0] = 30;
+    if (!rows.length) { sh.set(r0 + 1, c0, '(sem registros)', S.sub); }
+    const nR = Math.max(rows.length, 1);
+    rows.forEach((r, i) => cols.forEach((c, j) => {
+      const v = val(c, r);
+      if (c.type === 'money' || c.type === 'num' || c.type === 'pct') { const n = num(c, v); sh.set(r0 + 1 + i, c0 + j, n === null ? '' : n, stOf(c)); if (i < 300) sh.width(c0 + j, 15); }
+      else { const t = v === null || v === undefined ? '' : String(v); sh.set(r0 + 1 + i, c0 + j, t, t.length > 60 ? S.quebra : 0); if (i < 300) sh.width(c0 + j, Math.min(opts.larguraMax || 48, t.length * 0.95 + 2)); }
+    }));
+    const last = r0 + nR; const temTot = opts.totais !== false && cols.some(c => c.type === 'money') && rows.length > 0;
+    if (temTot) {
+      const tr = last + 1;
+      cols.forEach((c, j) => {
+        const L = col(c0 + j);
+        if (j === 0) sh.set(tr, c0, 'Total', S.totLbl);
+        else if (c.type === 'money' || (c.type === 'num' && !c.d && c.k === 'n')) { const sum = rows.reduce((t, r) => t + (num(c, val(c, r)) || 0), 0); sh.set(tr, c0 + j, { f: `SUBTOTAL(109,${L}${r0 + 2}:${L}${last + 1})`, v: Math.round(sum * 100) / 100 }, c.type === 'money' ? S.totMoeda : S.totInt, 'f'); }
+        else sh.set(tr, c0 + j, '', S.totLbl);
+      });
+    }
+    const refT = `${col(c0)}${r0 + 1}:${col(c0 + cols.length - 1)}${(temTot ? last + 2 : last + 1)}`;
+    const id = ++wb.nTab; const nome = 'tb' + (opts.nome || 'Tabela').replace(/[^A-Za-z0-9_]/g, '').slice(0, 40) + '_' + id;
+    const somaCols = cols.map((c, j) => j > 0 && (c.type === 'money' || (c.type === 'num' && !c.d && c.k === 'n')));
+    sh.tables.push({ id, nome, ref: refT, nomes, totais: temTot, cols, somaCols, refFiltro: `${col(c0)}${r0 + 1}:${col(c0 + cols.length - 1)}${last + 1}` });
+    for (const k of opts.barras || []) { const j = cols.findIndex(c => c.k === k); if (j >= 0 && rows.length > 1) sh.cf.push(`${col(c0 + j)}${r0 + 2}:${col(c0 + j)}${last + 1}`); }
+    return { r1: temTot ? last + 1 : last, refDados: { sheet: sh.name, r0, c0, r1: last, c1: c0 + cols.length - 1 }, nome };
+  }
+
+  function tableXml(t) {
+    return HEAD + `<table xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" id="${t.id}" name="${t.nome}" displayName="${t.nome}" ref="${t.ref}"${t.totais ? ' totalsRowCount="1"' : ''}><autoFilter ref="${t.refFiltro}"/><tableColumns count="${t.nomes.length}">${t.nomes.map((n, i) => `<tableColumn id="${i + 1}" name="${X(n)}"${t.totais && i === 0 ? ' totalsRowLabel="Total"' : ''}${t.totais && t.somaCols[i] ? ' totalsRowFunction="sum"' : ''}/>`).join('')}</tableColumns><tableStyleInfo name="TableStyleMedium2" showFirstColumn="0" showLastColumn="0" showRowStripes="1" showColumnStripes="0"/></table>`;
+  }
+
+  /* ---------- Tabela dinâmica ---------- */
+  // cache único por base: campos = colunas da base; linhas/colunas com itens compartilhados
+  function pivotCache(base) {
+    const campos = base.cols.map((c, j) => {
+      const isNum = c.type === 'money' || c.type === 'num' || c.type === 'pct';
+      const vals = base.rows.map(r => isNum ? num(c, val(c, r)) : (v => v === null || v === undefined ? '' : String(v))(val(c, r)));
+      if (isNum) { const ns = vals.filter(v => v !== null); return { nome: base.nomes[j], isNum, vals, min: ns.length ? Math.min(...ns) : 0, max: ns.length ? Math.max(...ns) : 0, temNulo: ns.length < vals.length }; }
+      const itens = []; const idx = new Map(); for (const v of vals) if (!idx.has(v)) { idx.set(v, itens.length); itens.push(v); }
+      return { nome: base.nomes[j], isNum, vals, itens, idx };
+    });
+    return { campos, n: base.rows.length };
+  }
+  function cacheDefXml(pc, src) {
+    const f = pc.campos.map(c => c.isNum
+      ? `<cacheField name="${X(c.nome)}" numFmtId="0"><sharedItems${c.temNulo ? ' containsString="0" containsBlank="1"' : ' containsSemiMixedTypes="0" containsString="0"'} containsNumber="1" minValue="${c.min}" maxValue="${c.max}"/></cacheField>`
+      : `<cacheField name="${X(c.nome)}" numFmtId="0"><sharedItems${c.itens.some(v => v === '') ? ' containsBlank="1"' : ''} count="${c.itens.length}">${c.itens.map(v => v === '' ? '<m/>' : `<s v="${X(v)}"/>`).join('')}</sharedItems></cacheField>`).join('');
+    return HEAD + `<pivotCacheDefinition ${NS} r:id="rId1" refreshOnLoad="1" refreshedBy="Reforma Tributária Simulator" refreshedDate="${(Date.now() / 86400000 + 25569).toFixed(6)}" createdVersion="6" refreshedVersion="6" minRefreshableVersion="3" recordCount="${pc.n}"><cacheSource type="worksheet"><worksheetSource ref="${src.ref}" sheet="${X(src.sheet)}"/></cacheSource><cacheFields count="${pc.campos.length}">${f}</cacheFields></pivotCacheDefinition>`;
+  }
+  function cacheRecXml(pc) {
+    let out = HEAD + `<pivotCacheRecords ${NS} count="${pc.n}">`;
+    for (let i = 0; i < pc.n; i++) {
+      out += '<r>';
+      for (const c of pc.campos) { if (c.isNum) { const v = c.vals[i]; out += v === null ? '<m/>' : `<n v="${v}"/>`; } else out += `<x v="${c.idx.get(c.vals[i])}"/>`; }
+      out += '</r>';
+    }
+    return out + '</pivotCacheRecords>';
+  }
+  /** Calcula o resultado da dinâmica (para gravar os valores visíveis antes da atualização) e gera o XML. */
+  function pivotTable(sh, pc, def, cacheId, r0) {
+    const lin = pc.campos.findIndex(c => c.nome === def.linha); const vals = def.valores.map(n => pc.campos.findIndex(c => c.nome === n)).filter(i => i >= 0);
+    if (lin < 0 || !vals.length) return null;
+    const L = pc.campos[lin]; const soma = L.itens.map(() => vals.map(() => 0)); const tot = vals.map(() => 0);
+    for (let i = 0; i < pc.n; i++) { const it = L.idx.get(L.vals[i]); vals.forEach((f, j) => { const v = pc.campos[f].vals[i] || 0; soma[it][j] += v; tot[j] += v; }); }
+    // ordena os itens pelo 1º valor (maior primeiro) quando pedido; senão alfabético (como o Excel)
+    let ordem = L.itens.map((_, i) => i);
+    ordem.sort(def.ordenarPorValor ? (a, b) => Math.abs(soma[b][0]) - Math.abs(soma[a][0]) : (a, b) => String(L.itens[a]).localeCompare(String(L.itens[b]), 'pt-BR', { numeric: true }));
+    const nomesVal = def.valores.map((n, j) => def.rotulos && def.rotulos[j] ? def.rotulos[j] : 'Soma de ' + n);
+    // grava a área visível
+    sh.set(r0, 0, def.rotuloLinha || def.linha, S.cab); nomesVal.forEach((n, j) => sh.set(r0, 1 + j, n, S.cab)); sh.heights[r0] = 30;
+    ordem.forEach((it, k) => { sh.set(r0 + 1 + k, 0, L.itens[it] === '' ? '(vazio)' : L.itens[it]); vals.forEach((f, j) => sh.set(r0 + 1 + k, 1 + j, Math.round(soma[it][j] * 100) / 100, S.moeda)); });
+    const tr = r0 + 1 + ordem.length; sh.set(tr, 0, 'Total geral', S.totLbl); vals.forEach((f, j) => sh.set(tr, 1 + j, Math.round(tot[j] * 100) / 100, S.totMoeda));
+    sh.width(0, Math.min(55, Math.max(22, ...L.itens.slice(0, 500).map(v => String(v).length * 0.95 + 2)))); nomesVal.forEach((n, j) => sh.width(1 + j, Math.max(16, n.length * 0.9 + 2)));
+    const locRef = `A${r0 + 1}:${col(vals.length)}${tr + 1}`;
+    const pf = pc.campos.map((c, i) => {
+      if (i === lin) return `<pivotField axis="axisRow" showAll="0"${def.ordenarPorValor ? ' sortType="descending"' : ''}><items count="${c.itens.length + 1}">${c.itens.map((_, k) => `<item x="${k}"/>`).join('')}<item t="default"/></items>${def.ordenarPorValor ? `<autoSortScope><pivotArea dataOnly="0" outline="0" fieldPosition="0"><references count="1"><reference field="4294967294" count="1" selected="0"><x v="0"/></reference></references></pivotArea></autoSortScope>` : ''}</pivotField>`;
+      if (vals.includes(i)) return '<pivotField dataField="1" showAll="0"/>';
+      return '<pivotField showAll="0"/>';
+    }).join('');
+    const rowItems = ordem.map((it, k) => k === 0 && it === 0 ? '<i><x/></i>' : `<i><x v="${it}"/></i>`).join('') + '<i t="grand"><x/></i>';
+    const multi = vals.length > 1;
+    const colPart = multi ? `<colFields count="1"><field x="-2"/></colFields><colItems count="${vals.length}">${vals.map((_, j) => j === 0 ? '<i><x/></i>' : `<i i="${j}"><x v="${j}"/></i>`).join('')}</colItems>` : '<colItems count="1"><i/></colItems>';
+    const dataFields = vals.map((f, j) => `<dataField name="${X(nomesVal[j])}" fld="${f}" baseField="0" baseItem="0" numFmtId="166"/>`).join('');
+    const xml = HEAD + `<pivotTableDefinition xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" name="${X(def.nome)}" cacheId="${cacheId}" applyNumberFormats="0" applyBorderFormats="0" applyFontFormats="0" applyPatternFormats="0" applyAlignmentFormats="0" applyWidthHeightFormats="1" dataCaption="Valores" updatedVersion="6" minRefreshableVersion="3" useAutoFormatting="1" itemPrintTitles="1" createdVersion="6" indent="0" outline="1" outlineData="1" multipleFieldFilters="0" rowHeaderCaption="${X(def.rotuloLinha || def.linha)}"><location ref="${locRef}" firstHeaderRow="${multi ? 0 : 1}" firstDataRow="1" firstDataCol="1"/><pivotFields count="${pc.campos.length}">${pf}</pivotFields><rowFields count="1"><field x="${lin}"/></rowFields><rowItems count="${ordem.length + 1}">${rowItems}</rowItems>${colPart}<dataFields count="${vals.length}">${dataFields}</dataFields><pivotTableStyleInfo name="PivotStyleMedium9" showRowHeaders="1" showColHeaders="1" showRowStripes="0" showColStripes="0" showLastColumn="1"/></pivotTableDefinition>`;
+    return { xml, r1: tr };
+  }
+
+  /* ---------- Gráfico de colunas ---------- */
+  function chartXml(g) {
+    const ser = g.series.map((s, i) => `<c:ser><c:idx val="${i}"/><c:order val="${i}"/><c:tx><c:strRef><c:f>${X(s.nomeRef)}</c:f><c:strCache><c:ptCount val="1"/><c:pt idx="0"><c:v>${X(s.nome)}</c:v></c:pt></c:strCache></c:strRef></c:tx><c:spPr><a:solidFill><a:srgbClr val="${s.cor}"/></a:solidFill></c:spPr><c:invertIfNegative val="0"/><c:cat><c:strRef><c:f>${X(g.catRef)}</c:f><c:strCache><c:ptCount val="${g.cats.length}"/>${g.cats.map((c, k) => `<c:pt idx="${k}"><c:v>${X(c)}</c:v></c:pt>`).join('')}</c:strCache></c:strRef></c:cat><c:val><c:numRef><c:f>${X(s.ref)}</c:f><c:numCache><c:formatCode>#,##0.00</c:formatCode><c:ptCount val="${s.vals.length}"/>${s.vals.map((v, k) => `<c:pt idx="${k}"><c:v>${v}</c:v></c:pt>`).join('')}</c:numCache></c:numRef></c:val></c:ser>`).join('');
+    return HEAD + `<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><c:roundedCorners val="0"/><c:chart><c:title><c:tx><c:rich><a:bodyPr/><a:p><a:pPr><a:defRPr sz="1200" b="1"/></a:pPr><a:r><a:rPr lang="pt-BR" sz="1200" b="1"/><a:t>${X(g.titulo)}</a:t></a:r></a:p></c:rich></c:tx><c:overlay val="0"/></c:title><c:autoTitleDeleted val="0"/><c:plotArea><c:layout/><c:barChart><c:barDir val="col"/><c:grouping val="clustered"/><c:varyColors val="0"/>${ser}<c:gapWidth val="80"/><c:axId val="111"/><c:axId val="222"/></c:barChart><c:catAx><c:axId val="111"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="b"/><c:numFmt formatCode="General" sourceLinked="0"/><c:tickLblPos val="low"/><c:crossAx val="222"/><c:crosses val="autoZero"/><c:auto val="1"/><c:lblAlgn val="ctr"/><c:lblOffset val="100"/></c:catAx><c:valAx><c:axId val="222"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="l"/><c:majorGridlines><c:spPr><a:ln w="6350"><a:solidFill><a:srgbClr val="E3E8EC"/></a:solidFill></a:ln></c:spPr></c:majorGridlines><c:numFmt formatCode="#,##0" sourceLinked="0"/><c:tickLblPos val="nextTo"/><c:crossAx val="111"/><c:crosses val="autoZero"/><c:crossBetween val="between"/></c:valAx></c:plotArea><c:legend><c:legendPos val="b"/><c:overlay val="0"/></c:legend><c:plotVisOnly val="1"/><c:dispBlanksAs val="gap"/></c:chart><c:spPr><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:ln><a:noFill/></a:ln></c:spPr></c:chartSpace>`;
+  }
+  const drawingXml = (a) => HEAD + `<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"><xdr:twoCellAnchor editAs="oneCell"><xdr:from><xdr:col>${a.c0}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${a.r0}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:to><xdr:col>${a.c1}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${a.r1}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to><xdr:graphicFrame macro=""><xdr:nvGraphicFramePr><xdr:cNvPr id="2" name="Gráfico 1"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr><xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart r:id="rId1"/></a:graphicData></a:graphic></xdr:graphicFrame><xdr:clientData/></xdr:twoCellAnchor></xdr:wsDr>`;
+
+  /* ---------- ZIP com compressão (deflate nativo do navegador, quando houver) ---------- */
+  async function deflate(u8) {
+    if (typeof CompressionStream === 'undefined') return null;
+    try { const cs = new CompressionStream('deflate-raw'); const w = cs.writable.getWriter(); w.write(u8); w.close(); const buf = await new Response(cs.readable).arrayBuffer(); return new Uint8Array(buf); } catch (e) { return null; }
+  }
+  async function zipAsync(files) {
+    const parts = []; const central = []; let off = 0;
+    for (const f of files) {
+      const name = enc(f.name), raw = typeof f.data === 'string' ? enc(f.data) : f.data, crc = REP.crc32(raw);
+      const z = raw.length > 512 ? await deflate(raw) : null; const data = z || raw; const method = z ? 8 : 0;
+      const lh = new DataView(new ArrayBuffer(30));
+      lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(8, method, true); lh.setUint16(10, 0, true); lh.setUint16(12, 0x5A21, true);
+      lh.setUint32(14, crc, true); lh.setUint32(18, data.length, true); lh.setUint32(22, raw.length, true); lh.setUint16(26, name.length, true); lh.setUint16(28, 0, true);
+      parts.push(new Uint8Array(lh.buffer), name, data);
+      const ch = new DataView(new ArrayBuffer(46));
+      ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true); ch.setUint16(10, method, true); ch.setUint16(12, 0, true); ch.setUint16(14, 0x5A21, true);
+      ch.setUint32(16, crc, true); ch.setUint32(20, data.length, true); ch.setUint32(24, raw.length, true); ch.setUint16(28, name.length, true); ch.setUint32(42, off, true);
+      central.push(new Uint8Array(ch.buffer), name);
+      off += 30 + name.length + data.length;
+    }
+    const csize = central.reduce((t, p) => t + p.length, 0);
+    const end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true); end.setUint32(12, csize, true); end.setUint32(16, off, true);
+    const all = parts.concat(central, [new Uint8Array(end.buffer)]);
+    const out = new Uint8Array(all.reduce((t, p) => t + p.length, 0)); let p = 0; for (const a of all) { out.set(a, p); p += a.length; }
+    return out;
+  }
+
+  /* ---------- Montagem do relatório ---------- */
+  /**
+   * report: { titulo, subtitulo, meta: [[l,v]], avisos: [], secoes: [...], base: { titulo, cols, rows }, pivots: [{ nome, titulo, linha, valores, rotulos, ordenarPorValor }], grafico: { titulo, secao: 'título da seção', cat: 'k', series: [{k, nome, cor}] } }
+   */
+  async function gerar(report) {
+    const wb = { nTab: 0, sheets: [], used: new Set() };
+    const nova = (nome, tab) => { const sh = new Sheet(nomeAba(nome, wb.used)); sh.cab = report.titulo; if (tab) sh.tab = tab; wb.sheets.push(sh); return sh; };
+
+    // Capa
+    const capa = nova('Capa', C.escuro); capa.grid = false; capa.first = true;
+    capa.widths = [3, 30, 70, 18]; capa.heights[1] = 34;
+    capa.set(1, 1, report.titulo, S.titulo); capa.set(2, 1, report.subtitulo || '', S.sub);
+    capa.set(3, 1, 'Somente CBS, IBS e Imposto Seletivo · valores em R$', S.sub);
+    let r = 5; capa.set(r, 1, 'Dados do relatório', S.idx); capa.set(r, 2, '', S.idx); r++;
+    for (const [l, v] of report.meta || []) { capa.set(r, 1, l, S.mLbl); capa.set(r, 2, String(v === null || v === undefined ? '' : v), S.mVal); r++; }
+    const sumarioRow = r + 1;
+    // avisos
+    let ra = sumarioRow;
+    if ((report.avisos || []).length) {
+      capa.set(ra, 1, 'Avisos e premissas', S.idx); capa.set(ra, 2, '', S.idx); ra++;
+      for (const a of report.avisos) { capa.set(ra, 1, '⚠', S.aviso); capa.set(ra, 2, a, S.aviso); capa.heights[ra] = Math.min(110, 15 * Math.ceil(String(a).length / 72) + 3); ra++; }
+      ra++;
+    }
+    const idxRow = ra; capa.set(idxRow, 1, 'Índice — clique para ir à aba', S.idx); capa.set(idxRow, 2, '', S.idx);
+    const indice = [];
+
+    // Painel (KPIs + textos)
+    const kpis = (report.secoes || []).filter(s => s.tipo === 'kpis'); const textos = (report.secoes || []).filter(s => s.tipo === 'texto');
+    if (kpis.length || textos.length) {
+      const p = nova('Painel', C.turq); p.grid = false; p.widths = [2, 30, 2, 30, 2, 30, 2]; let pr = 1;
+      p.set(pr, 1, report.titulo, S.titulo); p.heights[pr] = 30; pr += 2;
+      for (const s of kpis) {
+        p.set(pr, 1, s.titulo, S.faixa); p.set(pr, 3, '', S.faixa); p.set(pr, 5, '', S.faixa); p.set(pr, 2, '', S.faixa); p.set(pr, 4, '', S.faixa); p.merges.push(`B${pr + 1}:F${pr + 1}`); p.heights[pr] = 22; pr += 2;
+        s.itens.forEach((k, i) => {
+          const cc = 1 + (i % 3) * 2, rr = pr + Math.floor(i / 3) * 4;
+          p.set(rr, cc, k.l, S.kLbl); p.heights[rr] = 26;
+          const isM = k.rawType === 'money' && typeof k.raw === 'number', isP = k.rawType === 'pct' && typeof k.raw === 'number';
+          p.set(rr + 1, cc, isM || isP ? k.raw : String(k.v), isM ? S.kMoeda : isP ? S.kPct : S.kTxt); p.heights[rr + 1] = 30;
+          p.set(rr + 2, cc, k.s || '', S.kSub); p.heights[rr + 2] = 24;
+        });
+        pr += Math.ceil(s.itens.length / 3) * 4 + 1;
+      }
+      for (const s of textos) { p.set(pr, 1, s.titulo, S.faixa); for (let c = 2; c <= 5; c++) p.set(pr, c, '', S.faixa); p.merges.push(`B${pr + 1}:F${pr + 1}`); pr++; p.set(pr, 1, s.texto, S.quebra); p.merges.push(`B${pr + 1}:F${pr + 1}`); p.heights[pr] = Math.min(240, 15 * Math.ceil(String(s.texto).length / 105) + 6); pr += 2; }
+      p.print = true; indice.push({ aba: p.name, desc: 'Indicadores principais' + (textos.length ? ' e leitura' : '') });
+    }
+
+    // Seções em tabela
+    const secMap = new Map();
+    for (const s of (report.secoes || []).filter(x => x.tipo === 'tabela')) {
+      const sh = nova(s.aba || abaCurta(s.titulo)); sh.grid = false;
+      sh.set(0, 0, s.titulo, S.titulo); sh.heights[0] = 30; sh.set(1, 0, s.nota || report.subtitulo || '', S.sub);
+      const linkVoltar = { ref: col(Math.max(1, s.cols.length - 1)) + '1', loc: ref('Capa', 'B' + (idxRow + 1)), txt: '« voltar ao índice' };
+      const barras = s.cols.filter(c => c.type === 'money' && /saldo|impacto|diferen|economia/i.test(c.t)).map(c => c.k);
+      const t = escreverTabela(sh, wb, 3, 0, s.cols, s.rows, { nome: s.titulo, totais: s.total !== false, barras });
+      sh.set(0, Math.max(1, s.cols.length - 1), '« voltar ao índice', S.link); sh.links.push(linkVoltar);
+      sh.freeze = { r: 4, c: s.congelar || 0 };
+      secMap.set(s.titulo, { sh, t, s });
+      indice.push({ aba: sh.name, desc: s.titulo + ' — ' + s.rows.length.toLocaleString('pt-BR') + ' linha(s)' });
+    }
+
+    // Gráfico
+    if (report.grafico) {
+      const g = report.grafico; const m = secMap.get(g.secao);
+      if (m && m.s.rows.length) {
+        const sh = nova('Gráfico', C.turq); sh.grid = false; sh.set(0, 0, g.titulo, S.titulo); sh.heights[0] = 30; sh.set(1, 0, 'Fonte: aba "' + m.sh.name + '"', S.sub);
+        const cj = m.s.cols.findIndex(c => c.k === g.cat); const d = m.t.refDados;
+        const cats = m.s.rows.map(rw => String(val(m.s.cols[cj], rw)));
+        const series = g.series.map(se => { const j = m.s.cols.findIndex(c => c.k === se.k); if (j < 0) return null; const L = col(d.c0 + j); return { nome: unicos(m.s.cols.map(c => c.t))[j], nomeRef: ref(m.sh.name, `$${L}$${d.r0 + 1}`), ref: ref(m.sh.name, `$${L}$${d.r0 + 2}:$${L}$${d.r1 + 1}`), cor: se.cor, vals: m.s.rows.map(rw => num(m.s.cols[j], val(m.s.cols[j], rw)) || 0) }; }).filter(Boolean);
+        const Lc = col(d.c0 + cj);
+        sh.drawing = { anchor: { c0: 0, r0: 3, c1: 12, r1: 26 }, chart: { titulo: g.titulo, cats, catRef: ref(m.sh.name, `$${Lc}$${d.r0 + 2}:$${Lc}$${d.r1 + 1}`), series } };
+        sh.widths = Array(12).fill(12);
+        indice.splice(1, 0, { aba: sh.name, desc: g.titulo });
+      }
+    }
+
+    // Base de dados + dinâmicas
+    let pivotCacheInfo = null;
+    if (report.base && report.base.rows.length) {
+      const b = report.base; const sh = nova('Base de dados', 'FF8A5A00');
+      b.nomes = unicos(b.cols.map(c => c.t));
+      const t = escreverTabela(sh, wb, 0, 0, b.cols, b.rows, { nome: 'Base', totais: false, larguraMax: 40 });
+      sh.freeze = { r: 1, c: 0 }; sh.print = false;
+      indice.push({ aba: sh.name, desc: 'Base de dados (' + b.rows.length.toLocaleString('pt-BR') + ' linhas) — fonte das tabelas dinâmicas; filtre ou crie novas dinâmicas a partir dela' });
+      const pc = pivotCache(b); const src = { sheet: sh.name, ref: `A1:${col(b.cols.length - 1)}${b.rows.length + 1}` };
+      pivotCacheInfo = { pc, src, cacheId: 1 };
+      for (const pdef of report.pivots || []) {
+        const ps = nova(pdef.titulo || ('Dinâmica — ' + pdef.linha), C.escuro); ps.grid = false;
+        ps.set(0, 0, pdef.titulo || ('Dinâmica — ' + pdef.linha), S.titulo); ps.heights[0] = 30;
+        ps.set(1, 0, 'Tabela dinâmica ligada à aba "' + sh.name + '". Atualiza ao abrir; use Analisar ▸ Atualizar depois de mudar a base. Arraste outros campos para explorar.', S.sub);
+        const pt = pivotTable(ps, pc, Object.assign({ nome: 'Dinamica' + (ps.pivots.length + wb.sheets.length) }, pdef), 1, 3);
+        if (pt) { ps.pivots.push(pt.xml); ps.freeze = { r: 4, c: 1 }; indice.push({ aba: ps.name, desc: 'Tabela dinâmica: ' + (pdef.titulo || pdef.linha) }); }
+      }
+    }
+
+    // Índice na capa
+    indice.forEach((it, i) => { const rr = idxRow + 1 + i; capa.set(rr, 1, it.aba, S.link); capa.links.push({ ref: 'B' + (rr + 1), loc: ref(it.aba), txt: it.aba }); capa.set(rr, 2, it.desc, S.quebra); });
+    capa.set(idxRow + indice.length + 3, 1, 'Gerado pelo Reforma Tributária Simulator — processamento local no navegador. Valores de 2027 em diante usam premissas de simulação quando não fixados em lei.', S.sub);
+
+    // Arquivos
+    const files = []; const ct = []; const wbRels = [];
+    wb.sheets.forEach((sh, i) => {
+      const n = i + 1; const rels = []; const relIds = { tables: [] };
+      sh.tables.forEach(t => { const id = 'rId' + (rels.length + 1); relIds.tables.push(id); rels.push(`<Relationship Id="${id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/table" Target="../tables/table${t.id}.xml"/>`); files.push({ name: `xl/tables/table${t.id}.xml`, data: tableXml(t) }); ct.push(`<Override PartName="/xl/tables/table${t.id}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml"/>`); });
+      sh.pivots.forEach((px, k) => { const pid = n * 10 + k; const id = 'rId' + (rels.length + 1); rels.push(`<Relationship Id="${id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotTable" Target="../pivotTables/pivotTable${pid}.xml"/>`); files.push({ name: `xl/pivotTables/pivotTable${pid}.xml`, data: px }, { name: `xl/pivotTables/_rels/pivotTable${pid}.xml.rels`, data: HEAD + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotCacheDefinition" Target="../pivotCache/pivotCacheDefinition1.xml"/></Relationships>' }); ct.push(`<Override PartName="/xl/pivotTables/pivotTable${pid}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.pivotTable+xml"/>`); });
+      if (sh.drawing) { const id = 'rId' + (rels.length + 1); relIds.drawing = id; rels.push(`<Relationship Id="${id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing${n}.xml"/>`); files.push({ name: `xl/drawings/drawing${n}.xml`, data: drawingXml(sh.drawing.anchor) }, { name: `xl/drawings/_rels/drawing${n}.xml.rels`, data: HEAD + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/chart${n}.xml"/></Relationships>` }, { name: `xl/charts/chart${n}.xml`, data: chartXml(sh.drawing.chart) }); ct.push(`<Override PartName="/xl/drawings/drawing${n}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>`, `<Override PartName="/xl/charts/chart${n}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>`); }
+      files.push({ name: `xl/worksheets/sheet${n}.xml`, data: sh.xml(relIds) }); ct.push(`<Override PartName="/xl/worksheets/sheet${n}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`);
+      if (rels.length) files.push({ name: `xl/worksheets/_rels/sheet${n}.xml.rels`, data: HEAD + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${rels.join('')}</Relationships>` });
+      wbRels.push(`<Relationship Id="rId${n}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${n}.xml"/>`);
+    });
+    const nS = wb.sheets.length;
+    wbRels.push(`<Relationship Id="rId${nS + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>`);
+    let pivotCaches = '';
+    if (pivotCacheInfo && wb.sheets.some(s => s.pivots.length)) {
+      wbRels.push(`<Relationship Id="rId${nS + 2}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotCacheDefinition" Target="pivotCache/pivotCacheDefinition1.xml"/>`);
+      pivotCaches = `<pivotCaches><pivotCache cacheId="1" r:id="rId${nS + 2}"/></pivotCaches>`;
+      files.push({ name: 'xl/pivotCache/pivotCacheDefinition1.xml', data: cacheDefXml(pivotCacheInfo.pc, pivotCacheInfo.src) }, { name: 'xl/pivotCache/pivotCacheRecords1.xml', data: cacheRecXml(pivotCacheInfo.pc) }, { name: 'xl/pivotCache/_rels/pivotCacheDefinition1.xml.rels', data: HEAD + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotCacheRecords" Target="pivotCacheRecords1.xml"/></Relationships>' });
+      ct.push('<Override PartName="/xl/pivotCache/pivotCacheDefinition1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.pivotCacheDefinition+xml"/>', '<Override PartName="/xl/pivotCache/pivotCacheRecords1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.pivotCacheRecords+xml"/>');
+    }
+    // nomes definidos: área de impressão com títulos repetidos nas abas de tabela
+    const defNames = wb.sheets.map((sh, i) => sh.tables.length && sh.print && sh.name !== 'Base de dados' ? `<definedName name="_xlnm.Print_Titles" localSheetId="${i}">${X(ref(sh.name, '$4:$4').replace(/!\$4:\$4$/, '!$4:$4'))}</definedName>` : '').join('');
+    const pre = [
+      { name: '[Content_Types].xml', data: HEAD + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>' + ct.join('') + '</Types>' },
+      { name: '_rels/.rels', data: HEAD + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/></Relationships>' },
+      { name: 'docProps/core.xml', data: HEAD + `<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${X(report.titulo)}</dc:title><dc:subject>CBS, IBS e Imposto Seletivo</dc:subject><dc:creator>Reforma Tributária Simulator</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">${new Date().toISOString().slice(0, 19)}Z</dcterms:created></cp:coreProperties>` },
+      { name: 'docProps/app.xml', data: HEAD + '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>Reforma Tributária Simulator</Application></Properties>' },
+      { name: 'xl/workbook.xml', data: HEAD + `<workbook ${NS}><workbookPr defaultThemeVersion="164011"/><bookViews><workbookView xWindow="0" yWindow="0" windowWidth="28800" windowHeight="15000" activeTab="0"/></bookViews><sheets>${wb.sheets.map((s, i) => `<sheet name="${X(s.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets>${defNames ? `<definedNames>${defNames}</definedNames>` : ''}<calcPr calcId="191029" fullCalcOnLoad="1"/>${pivotCaches}</workbook>` },
+      { name: 'xl/_rels/workbook.xml.rels', data: HEAD + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${wbRels.join('')}</Relationships>` },
+      { name: 'xl/styles.xml', data: STYLES }
+    ];
+    return zipAsync(pre.concat(files));
+  }
+
+  root.RTS_XLSX = { gerar };
 })(typeof window !== 'undefined' ? window : globalThis);
 
 </script>
@@ -3591,8 +3957,16 @@ table.t tr.sel td{background:var(--accent-bg)}
     else tabelas = [{ nome: name, rows: CL.parseCSV(CL.decodeText(bytes)).rows }];
     // aba com o cabeçalho do modelo (procura nas 10 primeiras linhas)
     let best = null;
-    for (const t of tabelas) for (let i = 0; i < Math.min(10, t.rows.length); i++) { const m = mapear(t.rows[i] || []); const sc = Object.keys(m).length; if (m.tipo !== undefined && m.ncm !== undefined && (!best || sc > best.sc)) best = { t, i, m, sc }; }
-    if (!best) throw new Error('Cabeçalho do modelo não encontrado (colunas "Tipo de operação" e "NCM"). Use o modelo baixado no simulador.');
+    for (const t of tabelas) for (let i = 0; i < Math.min(30, t.rows.length); i++) { const m = mapear(t.rows[i] || []); const sc = Object.keys(m).length; if (m.tipo !== undefined && m.ncm !== undefined && (!best || sc > best.sc)) best = { t, i, m, sc }; }
+    if (!best) {
+      // diagnóstico: mostra o que foi encontrado e o que falta
+      let melhor = null; for (const t of tabelas) for (let i = 0; i < Math.min(30, t.rows.length); i++) { const cel = (t.rows[i] || []).map(x => String(x == null ? '' : x).trim()).filter(Boolean); if (cel.length > (melhor ? melhor.cel.length : 0)) melhor = { t, i, cel }; }
+      const m = melhor ? mapear(melhor.t.rows[melhor.i]) : {}; const falta = [m.tipo === undefined ? '"Tipo de operação"' : '', m.ncm === undefined ? '"NCM"' : ''].filter(Boolean).join(' e ');
+      const relatorio = melhor && melhor.cel.some(c => /^(cClassTrib esperado|Regra|Fundamento|Base 20\d\d|CBS 20\d\d)$/i.test(c));
+      throw new Error(relatorio
+        ? 'Este arquivo é um relatório exportado pelo app (colunas Regra, cClassTrib, CBS…), não a planilha de operações. O Simulador de Operações lê o modelo (botão "Baixar modelo"), com uma linha por operação: Tipo de operação, UF origem, UF destino, NCM e Valor.'
+        : (falta.includes(" e ") ? 'Cabeçalho do modelo não encontrado: faltam as colunas ' : 'Cabeçalho do modelo não encontrado: falta a coluna ') + falta + '.' + (melhor ? ' Colunas lidas na aba "' + melhor.t.nome + '" (linha ' + (melhor.i + 1) + '): ' + melhor.cel.slice(0, 12).join(' | ') + (melhor.cel.length > 12 ? ' …' : '') + '.' : ' Nenhuma linha com dados foi encontrada.') + ' Use o modelo baixado no simulador (as linhas de título acima do cabeçalho podem ficar).');
+    }
     const linhas = []; let vazias = 0;
     for (let r = best.i + 1; r < best.t.rows.length; r++) {
       const row = best.t.rows[r] || []; const raw = {}; let algum = false;
@@ -4412,10 +4786,12 @@ table.t tr.sel td{background:var(--accent-bg)}
       <button class="btn sm" data-tbl-page="${id}" data-p="0" ${st.page === 0 ? 'disabled' : ''}>«</button><button class="btn sm" data-tbl-page="${id}" data-p="${st.page - 1}" ${st.page === 0 ? 'disabled' : ''}>‹</button><button class="btn sm" data-tbl-page="${id}" data-p="${st.page + 1}" ${st.page >= pages - 1 ? 'disabled' : ''}>›</button><button class="btn sm" data-tbl-page="${id}" data-p="${pages - 1}" ${st.page >= pages - 1 ? 'disabled' : ''}>»</button></div>`;
   }
   function refreshTable(id) { const el = $('#tbl-' + id); if (el) { const a = document.activeElement; const wasQ = a && a.dataset && a.dataset.tblQ === id; const pos = wasQ ? a.selectionStart : 0; el.innerHTML = tableInner(id); if (wasQ) { const i = $('[data-tbl-q="' + id + '"]'); i.focus(); i.setSelectionRange(pos, pos); } } }
+  /** Códigos com zero à esquerda (NCM, CST, cClassTrib, CFOP, NBS) saem como ="0504..." para o Excel não apagar os zeros. */
+  const codCsv = (c, v) => /^(ncm|cst|cclasstrib|cct|cctxml|cfop|nbs|cserv)$/i.test(c.k || '') && /^0\d*$/.test(String(v || '')) ? '="' + v + '"' : '';
   function toCSV(cols, rows) {
     const q = (s) => { s = String(s === null || s === undefined ? '' : s); return /[;"\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
     const out = [cols.map(c => q(c.t)).join(';')];
-    for (const r of rows) out.push(cols.map(c => { const v = cellVal(c, r); if (c.type === 'money') return Dec.csv(v || 0); if (c.type === 'num') return v === undefined || v === null ? '' : String(v).replace('.', ','); if (c.type === 'date') return v ? fmtD(v) : ''; if (c.type === 'doc' || c.type === 'mono') return q(v ? '​' + v : ''); return q(v); }).join(';'));
+    for (const r of rows) out.push(cols.map(c => { const v = cellVal(c, r); if (c.type === 'money') return Dec.csv(v || 0); if (c.type === 'num') return v === undefined || v === null ? '' : String(v).replace('.', ','); if (c.type === 'date') return v ? fmtD(v) : ''; if (c.type === 'doc' || c.type === 'mono') return q(v ? '​' + v : ''); return codCsv(c, v) || q(v); }).join(';'));
     return '﻿' + out.join('\r\n');
   }
 
@@ -4946,7 +5322,7 @@ table.t tr.sel td{background:var(--accent-bg)}
   PAGES['motor-regras'] = () => {
     const t = tabs('motor', [['regras', 'Regras', S.regras.length], ['transicao', 'Transição e premissas', S.premissas.length], ['sobre', 'Como o motor decide']]);
     const acts = `<button class="btn pri" data-act="rule-new">${ic('spark')} Nova regra</button><button class="btn" data-act="rules-export">${ic('download')} Exportar base</button><label class="btn">${ic('upload')} Importar base<input type="file" id="inRules" accept=".json" style="display:none"></label><button class="btn ghost" data-act="rules-reset">Restaurar base original</button>`;
-    let body = '';
+    let body = alertaRegraGeral();
     if (t.cur === 'regras') {
       const c = { fonte_secundaria: 0, necessita_validacao: 0, validada_usuario: 0 }; S.regras.forEach(r => c[r.status] = (c[r.status] || 0) + 1);
       const f = S.ui.ruleSt || '';
@@ -4992,7 +5368,7 @@ table.t tr.sel td{background:var(--accent-bg)}
         <dt>Fundamento</dt><dd>${esc(fonteTxt(r))}</dd><dt>Vigência</dt><dd>${fmtD(r.vigencia.inicio)} ${r.vigencia.fim ? 'a ' + fmtD(r.vigencia.fim) : '(sem termo final)'}</dd><dt>Prioridade</dt><dd>${r.prioridade}</dd>
         ${(r.condicoes || []).length ? '<dt>Condições</dt><dd>' + r.condicoes.map(esc).join('<br>') + '</dd>' : ''}${r.obs ? '<dt>Observação</dt><dd>' + esc(r.obs) + '</dd>' : ''}
         <dt>Verificação</dt><dd>${esc(r.verificacao || '')}${r.validadoEm ? '<br><b>Validada pelo usuário em ' + fmtD(r.validadoEm) + '</b>' + (r.validadoNota ? ' — ' + esc(r.validadoNota) : '') : ''}</dd></dl></div></div>
-      <div class="row" style="margin-top:14px"><button class="btn pri" data-act="rule-edit" data-id="${esc(r.id)}">Editar</button><button class="btn" data-act="rule-dup" data-id="${esc(r.id)}">Duplicar</button><button class="btn" data-act="rule-toggle" data-id="${esc(r.id)}">${r.ativa ? 'Desativar' : 'Ativar'}</button>${r.status !== 'validada_usuario' ? `<button class="btn" data-act="rule-validate" data-id="${esc(r.id)}">${ic('check')} Marcar como validada</button>` : `<button class="btn ghost" data-act="rule-unvalidate" data-id="${esc(r.id)}">Remover validação</button>`}${r.origem !== 'base' ? `<button class="btn ghost danger" data-act="rule-del" data-id="${esc(r.id)}">${ic('trash')} Excluir</button>` : ''}</div>`, esc(r.grupo || ''));
+      <div class="row" style="margin-top:14px"><button class="btn pri" data-act="rule-edit" data-id="${esc(r.id)}">Editar</button><button class="btn" data-act="rule-dup" data-id="${esc(r.id)}">Duplicar</button><button class="btn" data-act="rule-toggle" data-id="${esc(r.id)}">${r.ativa ? 'Desativar' : 'Ativar'}</button>${r.status !== 'validada_usuario' ? `<button class="btn" data-act="rule-validate" data-id="${esc(r.id)}">${ic('check')} Marcar como validada</button>` : `<button class="btn ghost" data-act="rule-unvalidate" data-id="${esc(r.id)}">Remover validação</button>`}${regraOriginal(r.id) && CAMPOS_FISCAIS(regraOriginal(r.id)) !== CAMPOS_FISCAIS(r) ? `<button class="btn" data-act="rule-restore" data-id="${esc(r.id)}" title="Volta CST, cClassTrib, efeito e reduções ao cadastro original">${ic('swap')} Restaurar original</button>` : ''}${r.origem !== 'base' ? `<button class="btn ghost danger" data-act="rule-del" data-id="${esc(r.id)}">${ic('trash')} Excluir</button>` : ''}</div>`, esc(r.grupo || ''));
   }
   function ruleForm(r, isNew) {
     const sel = (name, opts, v) => `<select class="sel" name="${name}">${Object.entries(opts).map(([k, l]) => `<option value="${k}" ${k === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
@@ -5024,7 +5400,7 @@ table.t tr.sel td{background:var(--accent-bg)}
       <input type="hidden" name="natureza" id="rfNat" value="${esc(nats.join(', '))}">
       <div id="ruleErr"></div><div class="row"><button class="btn pri" type="submit">Salvar regra</button><button class="btn" type="button" data-close-drawer>Cancelar</button></div></form>`, isNew ? 'A regra entra na base do projeto e pode ser exportada.' : esc(r.id));
     ruleFormBind(r);
-    $('#ruleForm').onsubmit = (e) => {
+    $('#ruleForm').onsubmit = async (e) => {
       e.preventDefault(); const f = new FormData(e.target); const g = (k) => String(f.get(k) || '').trim(); const list = (k) => g(k).split(/[,;\s]+/).map(x => x.replace(/\D/g, '')).filter((x, i, a) => x || a.length === 1);
       const nr = Object.assign({}, r, { id: g('id'), grupo: g('grupo'), nome: g('nome'), efeito: { tipo: g('tipo'), pRedCBS: Number(g('pRedCBS').replace(',', '.')), pRedIBS: Number(g('pRedIBS').replace(',', '.')) }, prioridade: Number(g('prioridade')) || 0, cst: g('cst'), cClassTrib: g('cClassTrib'), sentido: g('sentido'), status: g('status'), ncm: g('ncm') ? g('ncm').split(/[,;\s]+/).map(x => x.replace(/\D/g, '')).filter(Boolean) : [''], ncmExcluir: g('ncmExcluir') ? g('ncmExcluir').split(/[,;\s]+/).map(x => x.replace(/\D/g, '')).filter(Boolean) : [], natureza: g('natureza').split(/[,;\s]+/).filter(Boolean), destinatario: g('destinatario'), destinacao: g('destinacao'), fonte: { norma: g('norma'), artigo: g('artigo'), anexo: g('anexo') }, vigencia: { inicio: g('inicio') || '2026-01-01', fim: g('fim') || null }, condicional: !!f.get('condicional'), condicoes: g('condicoes').split('\n').map(x => x.trim()).filter(Boolean), obs: g('obs') });
       if (isNew) { nr.origem = 'usuario'; nr.ativa = true; nr.verificacao = 'Regra criada pelo usuário em ' + new Date().toLocaleDateString('pt-BR') + '.'; }
@@ -5032,6 +5408,10 @@ table.t tr.sel td{background:var(--accent-bg)}
       if (nr.status === 'validada_usuario' && !nr.validadoEm) nr.validadoEm = new Date().toISOString().slice(0, 10);
       const errs = RR.validarRegra(nr); if (isNew && S.regras.some(x => x.id === nr.id)) errs.push('Já existe uma regra com esse ID.');
       if (errs.length) { $('#ruleErr').innerHTML = `<div class="notice err">${ic('alert')}<div>${errs.map(esc).join('<br>')}</div></div>`; return; }
+      if (!isNew && r.id === 'LC214-GERAL' && CAMPOS_FISCAIS(nr) !== CAMPOS_FISCAIS(regraOriginal('LC214-GERAL') || r)) {
+        const ok = await confirmBox('Alterar a regra geral?', `A regra geral vale para <b>todas as operações que não têm regra específica</b>. Salvar com CST <b>${esc(nr.cst || '—')}</b> · cClassTrib <b>${esc(nr.cClassTrib || '—')}</b>${+nr.efeito.pRedCBS ? ' · redução <b>' + fmtN(+nr.efeito.pRedCBS) + '%</b>' : ''} aplica isso a todos esses produtos. Para dar redução a alguns NCMs, crie uma <b>nova regra</b> com esses NCMs (botão Nova regra) e mantenha a geral como tributação integral.`, 'Salvar mesmo assim', true);
+        if (!ok) return;
+      }
       if (isNew) S.regras.push(nr); else S.regras[S.regras.findIndex(x => x.id === r.id)] = nr;
       regrasChanged(); toast('ok', 'Regra salva.'); closeDrawer(); render(); ruleDetail(nr.id);
     };
@@ -5691,9 +6071,18 @@ table.t tr.sel td{background:var(--accent-bg)}
   function rowsAgr() { const k = 'agr:' + simFonte() + ':' + JSON.stringify([S.filters, S.vedados]); return S.cache[k] || (S.cache[k] = SM.agrupar(simRows(), S.vedados)); }
   function simTot(ano) { const k = 'simT:' + ano + ':' + simFonte() + ':' + S.ui.sim.ibsMunPct + ':' + JSON.stringify(S.filters); const full = S.cache['sim:' + k.slice(5)]; if (full) return full.T; return S.cache[k] || (S.cache[k] = SM.simular(rowsAgr(), simOpts(ano, { totais: true })).T); }
   function scenDet(Y) { const c = S.cache.scenDet; if (c && c.Y === Y) return c.det; const det = Y._det(); S.cache.scenDet = { Y, det }; return det; }
+  /** A regra geral precisa ser tributação integral (CST 000 · cClassTrib 000001 · sem redução). Alterá-la aplica a mudança a todas as operações sem regra específica. */
+  const regraOriginal = (id) => RTS_RULES.baseRules().find(x => x.id === id);
+  const CAMPOS_FISCAIS = (r) => JSON.stringify([r.efeito && r.efeito.tipo, r.efeito && +r.efeito.pRedCBS, r.efeito && +r.efeito.pRedIBS, r.cst, r.cClassTrib]);
+  function regraGeralAlterada() { const g = S.regras.find(x => x.id === 'LC214-GERAL'); if (!g) return null; const e = g.efeito || {}; return (g.cst !== '000' || g.cClassTrib !== '000001' || +e.pRedCBS || +e.pRedIBS || e.tipo !== 'integral' || g.ativa === false) ? g : null; }
+  function alertaRegraGeral() {
+    const g = regraGeralAlterada(); if (!g) return '';
+    const e = g.efeito || {};
+    return `<div class="notice err" style="margin-bottom:12px">${ic('alert')}<div><b>A regra geral foi alterada e está distorcendo a simulação.</b> "Tributação integral (alíquota padrão)" está com ${g.ativa === false ? '<b>a regra desativada</b>' : `CST <b>${esc(g.cst || '—')}</b> · cClassTrib <b>${esc(g.cClassTrib || '—')}</b>${+e.pRedCBS || +e.pRedIBS ? ` · redução de <b>${fmtN(+e.pRedCBS || +e.pRedIBS)}%</b>` : ''}`}. Como ela vale para <b>toda operação sem regra específica</b>, os produtos que deveriam ser 100% tributados estão saindo com essa redução. O correto é CST 000 · cClassTrib 000001 · sem redução.</div><button class="btn sm pri" data-act="rule-restore" data-id="LC214-GERAL">${ic('check')} Restaurar regra geral</button></div>`;
+  }
   function simControls(extra) {
     const a = S.ui.sim.ano; const p = RTS_RULES.premissaAno(S.premissas, a); const fontes = ['efdx', 'xml', 'planilha'].filter(k => k === 'efdx' ? temEfd() : k === 'xml' ? S.xml.docs.length : temPlan());
-    return `<div class="card"><div class="card-b stack">
+    return alertaRegraGeral() + `<div class="card"><div class="card-b stack">
       <div class="row"><span class="muted" style="width:120px">Ano simulado</span><div class="seg">${ANOS.map(y => `<button class="${a === y ? 'on' : ''}" data-act="sim-ano" data-v="${y}">${y}</button>`).join('')}</div>
       <span class="badge ${p.tipoCbs === 'lei' && p.tipoIbs === 'lei' ? 'ok' : 'warn'}">${p.tipoCbs === 'lei' && p.tipoIbs === 'lei' ? 'alíquotas de lei' : 'contém premissas'}</span><span class="muted" style="font-size:12px">CBS ${fmtN(p.cbs, 2)}% · IBS ${fmtN(p.ibs, 2)}% · ICMS a ${fmtN(p.icmsFator * 100)}%</span><a class="btn sm ghost" href="#motor-regras" data-act="go-prem">Ajustar premissas</a></div>
       ${fontes.length > 1 ? `<div class="row"><span class="muted" style="width:120px">Fonte</span><div class="seg">${fontes.map(k => `<button class="${simFonte() === k ? 'on' : ''}" data-act="sim-fonte" data-v="${k}">${k === 'planilha' ? ic('list') + ' ' : ''}${FONTE_LBL[k]}</button>`).join('')}</div>${simFonte() === 'planilha' ? `<span class="badge acc">${esc(S.lote.arquivo)} · ${fmtN(planOps().length)} operação(ões)</span>` : ''}</div>` : ''}
@@ -6093,7 +6482,13 @@ table.t tr.sel td{background:var(--accent-bg)}
     { id: 'operacao', t: 'Relatório por operação', d: 'CBS, IBS e Imposto Seletivo por natureza da operação e CFOP.' },
     { id: 'creditos', t: 'Relatório de créditos', d: 'Créditos de CBS/IBS por status, categoria e fornecedor, com fundamento e condição de cada item.' },
     { id: 'comparativo', t: 'Relatório CBS, IBS e IS', d: 'Débitos, créditos e saldo de CBS, IBS e Imposto Seletivo por tributo, por ano (2026–2033) e por NCM.' },
-    { id: 'cenarios', t: 'Relatório de cenários', d: 'Premissas de cada cenário e saldo de CBS, IBS e IS de 2026 a 2033.' }
+    { id: 'cenarios', t: 'Relatório de cenários', d: 'Premissas de cada cenário e saldo de CBS, IBS e IS de 2026 a 2033.' },
+    { id: 'mensal', t: 'Fluxo mensal de CBS, IBS e IS', d: 'Débitos, créditos e saldo mês a mês, com saldo credor acumulado — visão de caixa da apuração.', novo: true },
+    { id: 'cclasstrib', t: 'Mapa de CST e cClassTrib', d: 'Valores, base e tributos por CST e cClassTrib, com a descrição oficial e as regras que levaram a cada código.', novo: true },
+    { id: 'beneficios', t: 'Benefícios e reduções de alíquota', d: 'Operações com redução ou alíquota zero: tributo efetivo × alíquota cheia e o valor que deixa de ser recolhido (ou creditado).', novo: true },
+    { id: 'pendencias', t: 'Pendências de classificação', d: 'Plano de ação: enquadramentos sem fundamento, a escolher ou a conferir, ordenados pelo valor em risco.', novo: true },
+    { id: 'uf', t: 'IBS por UF de destino', d: 'Saídas por UF do destinatário: base, IBS estadual, IBS municipal e CBS — o IBS pertence ao destino.', novo: true },
+    { id: 'parceiros', t: 'Clientes e fornecedores', d: 'Ranking de clientes por débitos de CBS/IBS/IS e de fornecedores por créditos gerados.', novo: true }
   ];
   const mny = (k, t) => ({ k, t, type: 'money' });
   function repMeta() {
@@ -6101,7 +6496,7 @@ table.t tr.sel td{background:var(--accent-bg)}
     const rows = temDados() ? simRows() : []; const datas = rows.map(r => r.data).filter(Boolean).sort();
     return [['Projeto', S.config.projeto], ['Gerado em', new Date().toLocaleString('pt-BR')], ['Exercício simulado', String(ano)], ['Cenário', sc.nome], ['Fonte das operações', simFonte() === 'planilha' ? 'Planilha de operações — ' + S.lote.arquivo + ' (premissas do usuário, não documentos fiscais)' : simFonte() === 'efdx' ? 'EFD completa (C170 + XML nas saídas)' : 'XML NF-e'], simFonte() === 'planilha' ? ['Período', 'equivalente mensal da planilha (período "ano" e "operação única" ÷ 12)'] : ['Período importado', datas.length ? fmtD(datas[0]) + ' a ' + fmtD(datas[datas.length - 1]) : '—'], ['Empresa de referência', empresa().map(fmtDoc).join(', ') || '—'], ['Alíquotas ' + ano, 'CBS ' + fmtN(p.cbs, 2) + '% · IBS ' + fmtN(p.ibs, 2) + '% · ICMS a ' + fmtN(p.icmsFator * 100) + '% (' + (p.tipoCbs === 'lei' && p.tipoIbs === 'lei' ? 'lei' : 'contém premissas') + ')'], ['Tabela de classificações', S.classTab ? S.classTab.nome + ' (' + S.classTab.classes.length + ' cClassTrib · ' + S.classTab.hash.slice(0, 8) + ')' : 'não importada'], ['Filtros globais', activeFilters() ? Object.entries(S.filters).filter(([, v]) => v).map(([k, v]) => k + '=' + v).join(', ') : 'nenhum']];
   }
-  const avisoBase = () => { const a = ['Valores de CBS, IBS e IS para 2027 em diante usam premissas de simulação quando não fixados em lei — não são alíquotas oficiais.']; if (S.regras.every(r => r.status !== 'validada_usuario')) a.push('Nenhuma regra do motor foi marcada como validada no texto oficial; enquadramentos conferidos em fontes secundárias.'); if (S.efds.length && simFonte() === 'efdx') { const c = efdFull().cobertura; if (c.docsSemDetalhe.length) a.push(c.docsSemDetalhe.length + ' documento(s) da EFD sem C170 e sem XML (' + money(c.c190) + ') simulados pela regra geral, sem NCM — importe os XML para classificar por produto.'); }
+  const avisoBase = () => { const a = [].concat(regraGeralAlterada() ? ['ATENÇÃO: a regra geral (Tributação integral) foi alterada para CST ' + regraGeralAlterada().cst + ' / cClassTrib ' + regraGeralAlterada().cClassTrib + ' — os itens sem regra específica estão sendo simulados com essa classificação. Restaure a regra geral no Motor de Regras.'] : [], ['Valores de CBS, IBS e IS para 2027 em diante usam premissas de simulação quando não fixados em lei — não são alíquotas oficiais.']); if (S.regras.every(r => r.status !== 'validada_usuario')) a.push('Nenhuma regra do motor foi marcada como validada no texto oficial; enquadramentos conferidos em fontes secundárias.'); if (S.efds.length && simFonte() === 'efdx') { const c = efdFull().cobertura; if (c.docsSemDetalhe.length) a.push(c.docsSemDetalhe.length + ' documento(s) da EFD sem C170 e sem XML (' + money(c.c190) + ') simulados pela regra geral, sem NCM — importe os XML para classificar por produto.'); }
     if (!S.classTab) a.push('Tabela oficial de classificações (CST/cClassTrib) não importada: códigos não conferidos.'); else { const p = (S.xml.docs.length || S.efds.length) ? enqRows().filter(r => r.enq === 'pendente').length : 0; if (p) a.push(p + ' enquadramento(s) da sessão pendente(s) de validação na Central de Classificações.'); } return a; };
   function buildReport(id) {
     const ano = S.ui.sim.ano; const sc = cenAtivo(); const has = temDados();
@@ -6118,10 +6513,10 @@ table.t tr.sel td{background:var(--accent-bg)}
       if (Y.validar) R.avisos.push(money(Y.validar) + ' (anualizado) estão em enquadramentos "Sem fundamento" — NECESSITA DE VALIDAÇÃO NA LEGISLAÇÃO/TABELA OFICIAL VIGENTE.'); if (Y.sit) { const tt = Object.values(Y.sit).reduce((a, b) => a + b, 0) || 1; R.avisos.push('Situação dos enquadramentos (por valor): Confirmado ' + fmtN(Y.sit.confirmado / tt * 100, 1) + '% · Conferir ' + fmtN(Y.sit.conferir / tt * 100, 1) + '% · Escolher enquadramento ' + fmtN(Y.sit.decidir / tt * 100, 1) + '% · Sem fundamento ' + fmtN(Y.sit.sem_base / tt * 100, 1) + '%.'); }
       if (ano <= 2026) R.avisos.push('2026 é ano de teste: CBS (0,9%) e IBS (0,1%) destacados e compensáveis — não representam desembolso.');
       R.secoes.push({ titulo: 'CBS, IBS e IS — ' + ano + ' (anualizados)', tipo: 'kpis', itens: [{ l: 'Vendas', v: money(Y.vendas), raw: Y.vendas / 100, rawType: 'money' }, { l: 'Compras', v: money(Y.compras), raw: Y.compras / 100, rawType: 'money' }, { l: 'CBS débito', v: money(Y.cbsT), raw: Y.cbsT / 100, rawType: 'money' }, { l: 'IBS débito', v: money(Y.ibsT), raw: Y.ibsT / 100, rawType: 'money' }, { l: 'Imposto Seletivo', v: money(Y.is), raw: Y.is / 100, rawType: 'money' }, { l: 'Créditos CBS + IBS', v: money(cred), raw: cred / 100, rawType: 'money' }, { l: 'Saldo CBS + IBS + IS', v: saldoTxt(saldo), raw: saldo / 100, rawType: 'money' }, { l: 'CBS + IBS + IS sobre vendas', v: fmtN(Y.vendas ? deb / Y.vendas * 100 : 0, 2) + '%', raw: Y.vendas ? deb / Y.vendas * 100 : 0, rawType: 'pct', s: 'débitos ÷ vendas' }] });
-      R.secoes.push({ titulo: 'Projeção por exercício — ' + sc.nome + ' (anualizada)', tipo: 'tabela', total: false, cols: [{ k: 'ano', t: 'Ano', v: a => String(a.ano) }, { k: 'b', t: 'Base', v: a => a.premissa.tipoCbs === 'lei' && a.premissa.tipoIbs === 'lei' ? 'lei' : 'premissa' }, { k: 'c', t: 'CBS %', v: a => a.premissa.cbs, type: 'num', d: 2 }, { k: 'i', t: 'IBS %', v: a => a.premissa.ibs, type: 'num', d: 2 }, mny('vendas', 'Vendas'), mny('cbsT', 'CBS débito'), mny('ibsT', 'IBS débito'), mny('is', 'Imposto Seletivo'), { k: 'cr', t: 'Créditos CBS + IBS', type: 'money', v: a => a.credCbs + a.credIbs }, { k: 'sd', t: 'Saldo (+ recolher / − credor)', type: 'money', v: a => a.cbsT + a.ibsT + a.is - a.credCbs - a.credIbs }], rows: SR.anos });
+      R.secoes.push({ aba: 'Projeção 2026-2033', titulo: 'Projeção por exercício — ' + sc.nome + ' (anualizada)', tipo: 'tabela', total: false, cols: [{ k: 'ano', t: 'Ano', v: a => String(a.ano) }, { k: 'b', t: 'Base', v: a => a.premissa.tipoCbs === 'lei' && a.premissa.tipoIbs === 'lei' ? 'lei' : 'premissa' }, { k: 'c', t: 'CBS %', v: a => a.premissa.cbs, type: 'num', d: 2 }, { k: 'i', t: 'IBS %', v: a => a.premissa.ibs, type: 'num', d: 2 }, mny('vendas', 'Vendas'), mny('cbsT', 'CBS débito'), mny('ibsT', 'IBS débito'), mny('is', 'Imposto Seletivo'), { k: 'cr', t: 'Créditos CBS + IBS', type: 'money', v: a => a.credCbs + a.credIbs }, { k: 'sd', t: 'Saldo (+ recolher / − credor)', type: 'money', v: a => a.cbsT + a.ibsT + a.is - a.credCbs - a.credIbs }], rows: SR.anos });
       const f = SR.anualizacao * SCN.fatorCrescimento(sc, ano); const m = new Map();
       for (const L of C.linhas) { if (!['debito', 'credito', 'estorno_debito', 'estorno_credito'].includes(L.papel)) continue; const g = m.get(L.ncm) || { ncm: L.ncm, descricao: L.descricao, regra: L.regra, cClassTrib: L.cClassTrib, cbsD: 0, ibsD: 0, is: 0, cred: 0 }; const sg = L.papel.startsWith('estorno') ? -1 : 1; const cbs = (L.N.cbs || 0) + (L.N.cbsTeste || 0), ibs = (L.N.ibs || 0) + (L.N.ibsTeste || 0); if (L.papel === 'credito' || L.papel === 'estorno_credito') g.cred += Math.round(sg * (cbs + ibs) * f); else { g.cbsD += Math.round(sg * cbs * f); g.ibsD += Math.round(sg * ibs * f); g.is += Math.round(sg * (L.N.is || 0) * f); } m.set(L.ncm, g); }
-      R.secoes.push({ titulo: 'CBS, IBS e IS por NCM — ' + ano + ' (anualizados)', tipo: 'tabela', cols: [{ k: 'ncm', t: 'NCM' }, { k: 'descricao', t: 'Descrição' }, { k: 'regra', t: 'Regra' }, { k: 'cClassTrib', t: 'cClassTrib' }, mny('cbsD', 'CBS débito'), mny('ibsD', 'IBS débito'), mny('is', 'Imposto Seletivo'), mny('cred', 'Créditos CBS + IBS'), { k: 'sd', t: 'Saldo', type: 'money', v: g => g.cbsD + g.ibsD + g.is - g.cred }], rows: [...m.values()].sort((a, b) => Math.abs(b.cbsD + b.ibsD + b.is - b.cred) - Math.abs(a.cbsD + a.ibsD + a.is - a.cred)) });
+      R.secoes.push({ aba: 'Por NCM', titulo: 'CBS, IBS e IS por NCM — ' + ano + ' (anualizados)', tipo: 'tabela', cols: [{ k: 'ncm', t: 'NCM' }, { k: 'descricao', t: 'Descrição' }, { k: 'regra', t: 'Regra' }, { k: 'cClassTrib', t: 'cClassTrib' }, mny('cbsD', 'CBS débito'), mny('ibsD', 'IBS débito'), mny('is', 'Imposto Seletivo'), mny('cred', 'Créditos CBS + IBS'), { k: 'sd', t: 'Saldo', type: 'money', v: g => g.cbsD + g.ibsD + g.is - g.cred }], rows: [...m.values()].sort((a, b) => Math.abs(b.cbsD + b.ibsD + b.is - b.cred) - Math.abs(a.cbsD + a.ibsD + a.is - a.cred)) });
       const y33 = SR.anos.find(a => a.ano === 2033) || SR.anos[SR.anos.length - 1];
       R.secoes.push({ titulo: 'Leitura', tipo: 'texto', texto: 'No cenário "' + sc.nome + '", em ' + ano + ' a empresa teria ' + money(Y.cbsT) + ' de CBS, ' + money(Y.ibsT) + ' de IBS e ' + money(Y.is) + ' de Imposto Seletivo a débito, com ' + money(cred) + ' de créditos de CBS e IBS — saldo de ' + saldoTxt(saldo) + ' (valores anualizados). Em 2033, com o IBS pleno, o saldo projetado é de ' + saldoTxt(y33.cbsT + y33.ibsT + y33.is - y33.credCbs - y33.credIbs) + '. Premissas: ' + cenChips(sc).join('; ') + '.' });
     } else if (id === 'fiscal') {
@@ -6144,14 +6539,14 @@ table.t tr.sel td{background:var(--accent-bg)}
       const r = simResult(ano); const T = r.T; const gc = colsRT(ano);
       if (T.valorValidar) R.avisos.push(money(T.valorValidar) + ' das operações estão em enquadramentos "Sem fundamento" — NECESSITA DE VALIDAÇÃO NA LEGISLAÇÃO/TABELA OFICIAL VIGENTE.');
       R.avisos.push('Valores do período importado (sem anualização). Somente CBS, IBS e Imposto Seletivo.');
-      if (id === 'empresa') R.secoes.push({ titulo: 'CBS, IBS e IS por estabelecimento — ' + ano, tipo: 'tabela', cols: [{ k: 'estab', t: 'Estabelecimento' }].concat(gc), rows: somaRT(r.linhas, L => L.estab || 'XML', L => ({ estab: L.estab ? fmtDoc(L.estab) + (efdNome(L.estab) ? ' · ' + efdNome(L.estab) : '') : 'Somente XML (sem EFD)' })) });
-      if (id === 'operacao') R.secoes.push({ titulo: 'CBS, IBS e IS por natureza e CFOP — ' + ano, tipo: 'tabela', cols: [{ k: 'nat', t: 'Natureza' }, { k: 'cfop', t: 'CFOP' }].concat(gc), rows: somaRT(r.linhas, L => L.nat + '|' + L.cfop, L => ({ nat: RTS_RULES.NAT[L.nat] || L.nat, cfop: L.cfop })).sort((a, b) => b.vendas + b.compras - a.vendas - a.compras) });
+      if (id === 'empresa') R.secoes.push({ aba: 'Por estabelecimento', titulo: 'CBS, IBS e IS por estabelecimento — ' + ano, tipo: 'tabela', cols: [{ k: 'estab', t: 'Estabelecimento' }].concat(gc), rows: somaRT(r.linhas, L => L.estab || 'XML', L => ({ estab: L.estab ? fmtDoc(L.estab) + (efdNome(L.estab) ? ' · ' + efdNome(L.estab) : '') : 'Somente XML (sem EFD)' })) });
+      if (id === 'operacao') R.secoes.push({ aba: 'Por natureza e CFOP', titulo: 'CBS, IBS e IS por natureza e CFOP — ' + ano, tipo: 'tabela', cols: [{ k: 'nat', t: 'Natureza' }, { k: 'cfop', t: 'CFOP' }].concat(gc), rows: somaRT(r.linhas, L => L.nat + '|' + L.cfop, L => ({ nat: RTS_RULES.NAT[L.nat] || L.nat, cfop: L.cfop })).sort((a, b) => b.vendas + b.compras - a.vendas - a.compras) });
       if (id === 'comparativo') {
         const sdo = T.cbsLiq + T.ibsLiq + (T.isDeb || 0);
         R.secoes.push({ titulo: 'Resumo ' + ano, tipo: 'kpis', itens: [{ l: 'CBS débito', v: money(T.cbsDeb), raw: T.cbsDeb / 100, rawType: 'money' }, { l: 'IBS débito', v: money(T.ibsDeb), raw: T.ibsDeb / 100, rawType: 'money' }, { l: 'Imposto Seletivo', v: money(T.isDeb || 0), raw: (T.isDeb || 0) / 100, rawType: 'money' }, { l: 'Créditos CBS + IBS', v: money(T.cbsCred + T.ibsCred), raw: (T.cbsCred + T.ibsCred) / 100, rawType: 'money' }, { l: 'Saldo CBS + IBS + IS', v: saldoTxt(sdo), raw: sdo / 100, rawType: 'money' }, { l: 'CBS + IBS sobre vendas', v: fmtN(T.cargaDeb, 2) + '%', raw: T.cargaDeb, rawType: 'pct' }] });
-        R.secoes.push({ titulo: 'Débitos e créditos por tributo — ' + ano, tipo: 'tabela', cols: [{ k: 'l', t: 'Tributo' }, mny('d', 'Débito'), mny('e', 'Estornos e devoluções'), mny('c', 'Crédito'), { k: 's', t: 'Saldo (+ recolher / − credor)', type: 'money', v: x => x.d - x.e - x.c }], rows: [{ l: 'CBS', d: T.cbsDeb, e: T.cbsEstD - T.cbsEstC, c: T.cbsCred }, { l: 'IBS', d: T.ibsDeb, e: T.ibsEstD - T.ibsEstC, c: T.ibsCred }, { l: 'Imposto Seletivo', d: T.isDeb || 0, e: 0, c: 0 }] });
-        R.secoes.push({ titulo: 'CBS, IBS e IS por ano (período importado)', tipo: 'tabela', total: false, cols: [{ k: 'ano', t: 'Ano', v: a => String(a.ano) }, mny('cbsDeb', 'CBS débito'), mny('ibsDeb', 'IBS débito'), mny('isDeb', 'Imposto Seletivo'), { k: 'cr', t: 'Créditos CBS + IBS', type: 'money', v: a => a.cbsCred + a.ibsCred }, { k: 'sd', t: 'Saldo (+ recolher / − credor)', type: 'money', v: a => a.cbsLiq + a.ibsLiq + (a.isDeb || 0) }], rows: ANOS.map(a => Object.assign({ ano: a }, simTot(a))) });
-        R.secoes.push({ titulo: 'CBS, IBS e IS por NCM — ' + ano, tipo: 'tabela', cols: [{ k: 'ncm', t: 'NCM' }, { k: 'descricao', t: 'Descrição' }].concat(gc), rows: somaRT(r.linhas, L => L.ncm, L => ({ ncm: L.ncm, descricao: L.descricao })) });
+        R.secoes.push({ aba: 'Por tributo', titulo: 'Débitos e créditos por tributo — ' + ano, tipo: 'tabela', cols: [{ k: 'l', t: 'Tributo' }, mny('d', 'Débito'), mny('e', 'Estornos e devoluções'), mny('c', 'Crédito'), { k: 's', t: 'Saldo (+ recolher / − credor)', type: 'money', v: x => x.d - x.e - x.c }], rows: [{ l: 'CBS', d: T.cbsDeb, e: T.cbsEstD - T.cbsEstC, c: T.cbsCred }, { l: 'IBS', d: T.ibsDeb, e: T.ibsEstD - T.ibsEstC, c: T.ibsCred }, { l: 'Imposto Seletivo', d: T.isDeb || 0, e: 0, c: 0 }] });
+        R.secoes.push({ aba: 'Por ano 2026-2033', titulo: 'CBS, IBS e IS por ano (período importado)', tipo: 'tabela', total: false, cols: [{ k: 'ano', t: 'Ano', v: a => String(a.ano) }, mny('cbsDeb', 'CBS débito'), mny('ibsDeb', 'IBS débito'), mny('isDeb', 'Imposto Seletivo'), { k: 'cr', t: 'Créditos CBS + IBS', type: 'money', v: a => a.cbsCred + a.ibsCred }, { k: 'sd', t: 'Saldo (+ recolher / − credor)', type: 'money', v: a => a.cbsLiq + a.ibsLiq + (a.isDeb || 0) }], rows: ANOS.map(a => Object.assign({ ano: a }, simTot(a))) });
+        R.secoes.push({ aba: 'Por NCM', titulo: 'CBS, IBS e IS por NCM — ' + ano, tipo: 'tabela', cols: [{ k: 'ncm', t: 'NCM' }, { k: 'descricao', t: 'Descrição' }].concat(gc), rows: somaRT(r.linhas, L => L.ncm, L => ({ ncm: L.ncm, descricao: L.descricao })) });
       }
     } else if (id === 'creditos') {
       const r = credResult(ano); const T = r.T;
@@ -6167,11 +6562,97 @@ table.t tr.sel td{background:var(--accent-bg)}
       if (has) {
         const res = S.cenarios.map(c => ({ c, R: scenResult(c) }));
         const sdA = (a) => a.cbsT + a.ibsT + a.is - a.credCbs - a.credIbs;
-        R.secoes.push({ titulo: 'Saldo de CBS + IBS + IS por cenário (anualizado; + recolher / − credor)', tipo: 'tabela', total: false, cols: [{ k: 'nome', t: 'Cenário' }].concat(ANOS.map(a => mny('y' + a, String(a)))).concat([mny('acum', 'Acumulado 2027–2033')]), rows: res.map(({ c, R: X }) => { const o = { nome: c.nome }; X.anos.forEach(a => o['y' + a.ano] = sdA(a)); o.acum = X.anos.filter(a => a.ano >= 2027).reduce((t, a) => t + sdA(a), 0); return o; }) });
+        R.secoes.push({ aba: 'Saldo por cenário', titulo: 'Saldo de CBS + IBS + IS por cenário (anualizado; + recolher / − credor)', tipo: 'tabela', total: false, cols: [{ k: 'nome', t: 'Cenário' }].concat(ANOS.map(a => mny('y' + a, String(a)))).concat([mny('acum', 'Acumulado 2027–2033')]), rows: res.map(({ c, R: X }) => { const o = { nome: c.nome }; X.anos.forEach(a => o['y' + a.ano] = sdA(a)); o.acum = X.anos.filter(a => a.ano >= 2027).reduce((t, a) => t + sdA(a), 0); return o; }) });
         for (const { c, R: X } of res) R.secoes.push({ titulo: 'Projeção — ' + c.nome, tipo: 'tabela', total: false, cols: [{ k: 'ano', t: 'Ano', v: a => String(a.ano) }, { k: 'c', t: 'CBS %', v: a => a.premissa.cbs, type: 'num', d: 2 }, { k: 'i', t: 'IBS %', v: a => a.premissa.ibs, type: 'num', d: 2 }, mny('cbsT', 'CBS débito'), mny('ibsT', 'IBS débito'), mny('is', 'Imposto Seletivo'), { k: 'cr', t: 'Créditos CBS + IBS', type: 'money', v: a => a.credCbs + a.credIbs }, { k: 'sd', t: 'Saldo', type: 'money', v: a => sdA(a) }], rows: X.anos });
       }
+    } else if (id === 'mensal') {
+      const r = simResult(ano); R.avisos.push('Valores do período importado (sem anualização), por mês de emissão/entrada do documento.');
+      const ms = somaRT(r.linhas, L => (L.data || '').slice(0, 7) || '(sem data)', L => ({ mes: (L.data || '').slice(0, 7) || '(sem data)' })).sort((a, b) => a.mes.localeCompare(b.mes));
+      let acc = 0; ms.forEach(m => { acc += m.saldo; m.acum = acc; m.mesLbl = m.mes.length === 7 ? m.mes.slice(5) + '/' + m.mes.slice(0, 4) : m.mes; });
+      const credores = ms.filter(m => m.saldo < 0).length;
+      R.secoes.push({ titulo: 'Resumo do período — ' + ano, tipo: 'kpis', itens: [{ l: 'Meses no período', v: fmtN(ms.length), raw: ms.length }, { l: 'Meses com saldo credor', v: fmtN(credores), raw: credores }, { l: 'Saldo acumulado', v: saldoTxt(acc), raw: acc / 100, rawType: 'money' }, { l: 'Maior débito mensal', v: money(Math.max(0, ...ms.map(m => m.deb))), raw: Math.max(0, ...ms.map(m => m.deb)) / 100, rawType: 'money' }] });
+      R.secoes.push({ titulo: 'Fluxo mensal — ' + ano, tipo: 'tabela', cols: [{ k: 'mesLbl', t: 'Mês' }, mny('vendas', 'Vendas'), mny('compras', 'Compras'), mny('cbsD', 'CBS débito'), mny('ibsD', 'IBS débito'), mny('is', 'Imposto Seletivo'), mny('cbsC', 'Crédito CBS'), mny('ibsC', 'Crédito IBS'), mny('saldo', 'Saldo do mês'), { k: 'acum', t: 'Saldo acumulado', type: 'money' }], rows: ms });
+      R.grafico = { titulo: 'Débitos, créditos e saldo por mês — ' + ano, secao: 'Fluxo mensal — ' + ano, cat: 'mesLbl', series: [{ k: 'cbsD', cor: '0E3A47' }, { k: 'ibsD', cor: '1A9E8F' }, { k: 'is', cor: 'C77700' }, { k: 'saldo', cor: '7A8B99' }] };
+    } else if (id === 'cclasstrib') {
+      const r = simResult(ano); const m = new Map();
+      for (const L of r.linhas) { if (L.papel === 'nao_simulado') continue; const k = (L.cst || '—') + '|' + (L.cClassTrib || '—'); const g = m.get(k) || { cst: L.cst || '—', cct: L.cClassTrib || '—', desc: L.descOficial || '', regras: new Set(), pRed: L.pRed, n: 0, valor: 0, base: 0, cbs: 0, ibs: 0, is: 0, cred: 0 }; g.n++; g.regras.add(L.regra); const sg = L.papel.startsWith('estorno') ? -1 : 1; g.valor += sg * (L.vItem || 0); if (L.papel === 'credito' || L.papel === 'estorno_credito') g.cred += sg * ((L.cbs || 0) + (L.ibs || 0)); else if (L.papel === 'debito' || L.papel === 'estorno_debito') { if (!L.diferido) { g.base += sg * (L.base || 0); g.cbs += sg * (L.cbs || 0); g.ibs += sg * (L.ibs || 0); g.is += sg * (L.vIS || 0); } } m.set(k, g); }
+      const rows = [...m.values()].map(g => Object.assign(g, { regrasTxt: [...g.regras].slice(0, 4).join(' · ') + (g.regras.size > 4 ? ' (+' + (g.regras.size - 4) + ')' : '') })).sort((a, b) => b.valor - a.valor);
+      R.avisos.push('Valores do período importado. cClassTrib conferido na tabela oficial importada quando disponível (coluna Descrição oficial).');
+      R.secoes.push({ titulo: 'CST e cClassTrib — ' + ano, tipo: 'tabela', cols: [{ k: 'cst', t: 'CST' }, { k: 'cct', t: 'cClassTrib' }, { k: 'desc', t: 'Descrição oficial' }, { k: 'pRed', t: 'Redução %', type: 'num' }, { k: 'regrasTxt', t: 'Regra(s) do motor' }, { k: 'n', t: 'Linhas', type: 'num' }, mny('valor', 'Valor das operações'), mny('base', 'Base (saídas)'), mny('cbs', 'CBS débito'), mny('ibs', 'IBS débito'), mny('is', 'Imposto Seletivo'), mny('cred', 'Créditos CBS + IBS')], rows });
+    } else if (id === 'beneficios') {
+      const r = simResult(ano); const P = RTS_RULES.premissaAno(S.premissas, ano); const cheia = (P.cbs || 0) + (P.ibs || 0); const m = new Map();
+      for (const L of r.linhas) { if (!['debito', 'credito', 'estorno_debito', 'estorno_credito'].includes(L.papel) || !(L.pRed > 0)) continue; const sent = L.papel === 'debito' || L.papel === 'estorno_debito' ? 'Saídas (débito)' : 'Entradas (crédito)'; const k = L.regra + '|' + sent; const g = m.get(k) || { regra: L.regra, sent, pRed: L.pRed, cct: L.cClassTrib, n: 0, base: 0, efetivo: 0, cheio: 0 }; const sg = L.papel.startsWith('estorno') ? -1 : 1; const ef = (L.cbs || 0) + (L.ibs || 0); g.n++; g.base += sg * (L.base || 0); g.efetivo += sg * ef; g.cheio += sg * Math.round((L.base || 0) * cheia / 100); m.set(k, g); }
+      const rows = [...m.values()].map(g => Object.assign(g, { eco: g.cheio - g.efetivo })).sort((a, b) => b.eco - a.eco);
+      const sai = rows.filter(g => g.sent.startsWith('Saídas')).reduce((t, g) => t + g.eco, 0), ent = rows.filter(g => !g.sent.startsWith('Saídas')).reduce((t, g) => t + g.eco, 0);
+      R.avisos.push('Alíquota cheia de referência em ' + ano + ': CBS ' + fmtN(P.cbs, 2) + '% + IBS ' + fmtN(P.ibs, 2) + '% (' + (P.tipoCbs === 'lei' && P.tipoIbs === 'lei' ? 'lei' : 'premissa de simulação') + '). Nas entradas, a redução diminui o crédito.');
+      R.secoes.push({ titulo: 'Efeito das reduções — ' + ano, tipo: 'kpis', itens: [{ l: 'Deixa de ser recolhido nas saídas', v: money(sai), raw: sai / 100, rawType: 'money' }, { l: 'Crédito a menor nas entradas', v: money(ent), raw: ent / 100, rawType: 'money' }, { l: 'Efeito líquido', v: money(sai - ent), raw: (sai - ent) / 100, rawType: 'money', s: 'saídas − entradas' }] });
+      R.secoes.push({ titulo: 'Reduções por regra — ' + ano, tipo: 'tabela', cols: [{ k: 'regra', t: 'Regra / benefício' }, { k: 'sent', t: 'Sentido' }, { k: 'cct', t: 'cClassTrib' }, { k: 'pRed', t: 'Redução %', type: 'num' }, { k: 'n', t: 'Linhas', type: 'num' }, mny('base', 'Base'), mny('cheio', 'CBS + IBS à alíquota cheia'), mny('efetivo', 'CBS + IBS efetivo'), mny('eco', 'Economia / crédito a menor')], rows });
+    } else if (id === 'pendencias') {
+      const rows = (S.xml.docs.length || temEfd()) ? enqRows().map(x => { const st = CLF.situacao(x); return Object.assign({}, x, { sitK: st.k, sitLbl: st.lbl, oque: st.oque, sent: x.dir === 'S' ? 'Saída' : 'Entrada' }); }).filter(x => x.sitK !== 'confirmado').sort((a, b) => (['sem_base', 'decidir', 'conferir'].indexOf(a.sitK) - ['sem_base', 'decidir', 'conferir'].indexOf(b.sitK)) || b.vItem - a.vItem) : [];
+      const soma = (k) => rows.filter(x => x.sitK === k).reduce((t, x) => t + (x.vItem || 0), 0);
+      R.secoes.push({ titulo: 'Valor por situação', tipo: 'kpis', itens: [{ l: 'Sem fundamento', v: money(soma('sem_base')), raw: soma('sem_base') / 100, rawType: 'money', s: fmtN(rows.filter(x => x.sitK === 'sem_base').length) + ' combinação(ões)' }, { l: 'Escolher enquadramento', v: money(soma('decidir')), raw: soma('decidir') / 100, rawType: 'money', s: fmtN(rows.filter(x => x.sitK === 'decidir').length) + ' combinação(ões)' }, { l: 'Conferir fundamento', v: money(soma('conferir')), raw: soma('conferir') / 100, rawType: 'money', s: fmtN(rows.filter(x => x.sitK === 'conferir').length) + ' combinação(ões)' }] });
+      R.secoes.push({ aba: 'Plano de ação', titulo: 'Plano de ação — classificações pendentes', tipo: 'tabela', cols: [{ k: 'sitLbl', t: 'Situação' }, { k: 'ncm', t: 'NCM/NBS' }, { k: 'descricao', t: 'Descrição' }, { k: 'sent', t: 'Sentido' }, { k: 'cfop', t: 'CFOP' }, { k: 'natureza', t: 'Natureza' }, { k: 'regra', t: 'Regra sugerida' }, { k: 'cst', t: 'CST' }, { k: 'cClassTrib', t: 'cClassTrib' }, { k: 'linhas', t: 'Linhas', type: 'num' }, mny('vItem', 'Valor em risco'), { k: 'oque', t: 'O que fazer' }], rows });
+    } else if (id === 'uf') {
+      const r = simResult(ano); const m = new Map();
+      for (const L of r.linhas) { if ((L.papel !== 'debito' && L.papel !== 'estorno_debito') || L.diferido) continue; const k = L.partUF || '(sem UF)'; const g = m.get(k) || { uf: k, n: 0, valor: 0, base: 0, cbs: 0, ibsUF: 0, ibsMun: 0, ibs: 0, is: 0 }; const sg = L.papel === 'estorno_debito' ? -1 : 1; g.n++; g.valor += sg * (L.vItem || 0); g.base += sg * (L.base || 0); g.cbs += sg * (L.cbs || 0); g.ibsUF += sg * (L.ibsUF || 0); g.ibsMun += sg * (L.ibsMun || 0); g.ibs += sg * (L.ibs || 0); g.is += sg * (L.vIS || 0); m.set(k, g); }
+      const rows = [...m.values()].sort((a, b) => b.ibs - a.ibs);
+      R.avisos.push('O IBS é devido ao estado e ao município de destino (LC 214/2025). Divisão estadual/municipal conforme as premissas do simulador. Valores do período importado.');
+      R.secoes.push({ titulo: 'IBS por UF de destino — ' + ano, tipo: 'tabela', cols: [{ k: 'uf', t: 'UF de destino' }, { k: 'n', t: 'Linhas', type: 'num' }, mny('valor', 'Valor das saídas'), mny('base', 'Base'), mny('ibsUF', 'IBS estadual'), mny('ibsMun', 'IBS municipal'), mny('ibs', 'IBS total'), mny('cbs', 'CBS'), mny('is', 'Imposto Seletivo')], rows });
+      R.grafico = { titulo: 'IBS por UF de destino — ' + ano, secao: 'IBS por UF de destino — ' + ano, cat: 'uf', series: [{ k: 'ibsUF', cor: '1A9E8F' }, { k: 'ibsMun', cor: '0E3A47' }] };
+    } else if (id === 'parceiros') {
+      const r = simResult(ano); const cli = new Map(), forn = new Map();
+      for (const L of r.linhas) {
+        const k = L.partDoc || '(não identificado)'; const sg = L.papel.startsWith('estorno') ? -1 : 1;
+        if (L.papel === 'debito' || L.papel === 'estorno_debito') { if (L.diferido) continue; const g = cli.get(k) || { doc: fmtDoc(L.partDoc) || k, nome: L.partNome || '', uf: L.partUF || '', n: 0, valor: 0, cbs: 0, ibs: 0, is: 0 }; g.n++; g.valor += sg * (L.vItem || 0); g.cbs += sg * (L.cbs || 0); g.ibs += sg * (L.ibs || 0); g.is += sg * (L.vIS || 0); cli.set(k, g); }
+        else if (L.papel === 'credito' || L.papel === 'estorno_credito') { const g = forn.get(k) || { doc: fmtDoc(L.partDoc) || k, nome: L.partNome || '', uf: L.partUF || '', n: 0, valor: 0, cbs: 0, ibs: 0 }; g.n++; g.valor += sg * (L.vItem || 0); g.cbs += sg * (L.cbs || 0); g.ibs += sg * (L.ibs || 0); forn.set(k, g); }
+      }
+      const cl = [...cli.values()].map(g => Object.assign(g, { tot: g.cbs + g.ibs + g.is })).sort((a, b) => b.tot - a.tot), fo = [...forn.values()].map(g => Object.assign(g, { tot: g.cbs + g.ibs })).sort((a, b) => b.tot - a.tot);
+      R.avisos.push('Valores do período importado. Créditos estimados pelo motor; condições de aproveitamento no Simulador de Créditos.');
+      R.secoes.push({ titulo: 'Clientes por débitos — ' + ano, tipo: 'tabela', cols: [{ k: 'doc', t: 'CNPJ/CPF' }, { k: 'nome', t: 'Cliente' }, { k: 'uf', t: 'UF' }, { k: 'n', t: 'Linhas', type: 'num' }, mny('valor', 'Vendas'), mny('cbs', 'CBS débito'), mny('ibs', 'IBS débito'), mny('is', 'Imposto Seletivo'), mny('tot', 'Total de débitos')], rows: cl });
+      R.secoes.push({ titulo: 'Fornecedores por créditos — ' + ano, tipo: 'tabela', cols: [{ k: 'doc', t: 'CNPJ/CPF' }, { k: 'nome', t: 'Fornecedor' }, { k: 'uf', t: 'UF' }, { k: 'n', t: 'Linhas', type: 'num' }, mny('valor', 'Compras'), mny('cbs', 'Crédito CBS'), mny('ibs', 'Crédito IBS'), mny('tot', 'Total de créditos')], rows: fo });
     }
+    // Excel: base de dados e tabelas dinâmicas (somente CBS, IBS e IS)
+    if (has) anexarBase(R, id, ano);
     return R;
+  }
+  /** Base de dados do relatório (linhas agrupadas) e as tabelas dinâmicas que acompanham o Excel. */
+  function anexarBase(R, id, ano) {
+    const P = ['Saldo (+ recolher / − credor)'];
+    if (id === 'creditos') {
+      const r = credResult(ano); const m = new Map();
+      for (const L of r.linhas) { const k = [L.status, L.categoria, L.partDoc, L.ncm, L.cfop, (L.data || '').slice(0, 7)].join('|'); const g = m.get(k) || { st: RTS_CRED.STATUS[L.status] || L.status, cat: L.categoriaDesc, doc: fmtDoc(L.partDoc), forn: L.partNome || '', tipoF: RTS_CRED.FORN[L.tipoFornecedor] || '', ncm: L.ncm, desc: L.descricao, cfop: L.cfop, mes: (L.data || '').slice(0, 7), n: 0, valor: 0, cbs: 0, ibs: 0, cred: 0 }; g.n++; g.valor += L.vItem || 0; g.cbs += L.cbs || 0; g.ibs += L.ibs || 0; g.cred += L.credito || 0; m.set(k, g); }
+      R.base = { cols: [{ k: 'st', t: 'Status do crédito' }, { k: 'cat', t: 'Categoria' }, { k: 'tipoF', t: 'Enquadramento do fornecedor' }, { k: 'doc', t: 'CNPJ/CPF' }, { k: 'forn', t: 'Fornecedor' }, { k: 'ncm', t: 'NCM' }, { k: 'desc', t: 'Descrição' }, { k: 'cfop', t: 'CFOP' }, { k: 'mes', t: 'Mês' }, { k: 'n', t: 'Linhas', type: 'num' }, mny('valor', 'Compras'), mny('cbs', 'CBS da operação'), mny('ibs', 'IBS da operação'), mny('cred', 'Crédito apropriável')], rows: [...m.values()] };
+      R.pivots = [{ titulo: 'Dinâmica — Status', linha: 'Status do crédito', valores: ['Compras', 'Crédito apropriável'] }, { titulo: 'Dinâmica — Categoria', linha: 'Categoria', valores: ['Compras', 'Crédito apropriável'], ordenarPorValor: true }, { titulo: 'Dinâmica — Fornecedor', linha: 'Fornecedor', valores: ['Crédito apropriável', 'Compras'], ordenarPorValor: true }];
+      return;
+    }
+    if (!['executivo', 'empresa', 'operacao', 'comparativo', 'mensal', 'cclasstrib', 'beneficios', 'uf', 'parceiros', 'ncm'].includes(id)) return;
+    const r = simResult(ano); const m = new Map(); const PL = SM.PAPEL_LBL;
+    for (const L of r.linhas) {
+      const mes = (L.data || '').slice(0, 7); const st = CLF.situacao(L);
+      const k = [mes, L.estab, L.papel, L.diferido ? 1 : 0, L.nat, L.cfop, L.ncm, L.regraId, L.cClassTrib, L.cst, st.k, L.partUF].join('|');
+      let g = m.get(k);
+      if (!g) { g = { mes, estab: L.estab ? fmtDoc(L.estab) + (efdNome(L.estab) ? ' · ' + efdNome(L.estab) : '') : 'Somente XML', sent: L.dir === 'S' ? 'Saída' : 'Entrada', apur: L.diferido ? 'Diferido' : (PL[L.papel] || L.papel), nat: RTS_RULES.NAT[L.nat] || L.nat || '', cfop: L.cfop || '', ncm: L.ncm || '', desc: L.descricao || '', regra: L.regra || '', cct: L.cClassTrib || '', cst: L.cst || '', sit: st.lbl, uf: L.partUF || '', red: L.pRed || 0, n: 0, valor: 0, base: 0, cbsD: 0, ibsD: 0, is: 0, cbsC: 0, ibsC: 0 }; m.set(k, g); }
+      g.n++; const sg = L.papel.startsWith('estorno') ? -1 : 1; g.valor += sg * (L.vItem || 0);
+      if (L.papel === 'credito' || L.papel === 'estorno_credito') { g.cbsC += sg * (L.cbs || 0); g.ibsC += sg * (L.ibs || 0); }
+      else if ((L.papel === 'debito' || L.papel === 'estorno_debito') && !L.diferido) { g.base += sg * (L.base || 0); g.cbsD += sg * (L.cbs || 0); g.ibsD += sg * (L.ibs || 0); g.is += sg * (L.vIS || 0); }
+    }
+    const rows = [...m.values()].map(g => Object.assign(g, { saldo: g.cbsD + g.ibsD + g.is - g.cbsC - g.ibsC }));
+    R.base = { cols: [{ k: 'mes', t: 'Mês' }, { k: 'estab', t: 'Estabelecimento' }, { k: 'sent', t: 'Sentido' }, { k: 'apur', t: 'Apuração' }, { k: 'nat', t: 'Natureza' }, { k: 'cfop', t: 'CFOP' }, { k: 'ncm', t: 'NCM/NBS' }, { k: 'desc', t: 'Descrição' }, { k: 'regra', t: 'Regra' }, { k: 'cst', t: 'CST' }, { k: 'cct', t: 'cClassTrib' }, { k: 'red', t: 'Redução %', type: 'num' }, { k: 'sit', t: 'Situação do enquadramento' }, { k: 'uf', t: 'UF do participante' }, { k: 'n', t: 'Linhas', type: 'num' }, mny('valor', 'Valor das operações'), mny('base', 'Base de cálculo'), mny('cbsD', 'CBS débito'), mny('ibsD', 'IBS débito'), mny('is', 'Imposto Seletivo'), mny('cbsC', 'Crédito CBS'), mny('ibsC', 'Crédito IBS'), mny('saldo', P[0])], rows };
+    const V = ['CBS débito', 'IBS débito', 'Imposto Seletivo', 'Crédito CBS', 'Crédito IBS', P[0]];
+    const piv = {
+      natureza: { titulo: 'Dinâmica — Natureza', linha: 'Natureza', valores: V, ordenarPorValor: true },
+      mes: { titulo: 'Dinâmica — Mês', linha: 'Mês', valores: V },
+      ncm: { titulo: 'Dinâmica — NCM', linha: 'NCM/NBS', valores: [P[0], 'CBS débito', 'IBS débito', 'Crédito CBS', 'Crédito IBS'], ordenarPorValor: true },
+      estab: { titulo: 'Dinâmica — Estabelecimento', linha: 'Estabelecimento', valores: V, ordenarPorValor: true },
+      cct: { titulo: 'Dinâmica — cClassTrib', linha: 'cClassTrib', valores: V, ordenarPorValor: true },
+      sit: { titulo: 'Dinâmica — Situação', linha: 'Situação do enquadramento', valores: ['Valor das operações', 'CBS débito', 'IBS débito', 'Crédito CBS', 'Crédito IBS'] },
+      uf: { titulo: 'Dinâmica — UF', linha: 'UF do participante', valores: V, ordenarPorValor: true },
+      regra: { titulo: 'Dinâmica — Regra', linha: 'Regra', valores: V, ordenarPorValor: true }
+    };
+    const escolha = { executivo: ['natureza', 'mes', 'ncm', 'estab'], empresa: ['estab', 'mes', 'natureza'], operacao: ['natureza', 'regra', 'mes'], comparativo: ['natureza', 'mes', 'ncm', 'cct'], mensal: ['mes', 'natureza'], cclasstrib: ['cct', 'regra', 'sit'], beneficios: ['regra', 'cct'], uf: ['uf', 'mes'], parceiros: ['uf', 'natureza'], ncm: ['ncm', 'sit', 'cct'] }[id] || ['natureza'];
+    R.pivots = escolha.map(k => piv[k]);
+    if (id === 'executivo') R.grafico = { titulo: 'Projeção de CBS, IBS e IS — 2026 a 2033 (anualizada)', secao: R.secoes.find(x => /^Projeção por exercício/.test(x.titulo)).titulo, cat: 'ano', series: [{ k: 'cbsT', cor: '0E3A47' }, { k: 'ibsT', cor: '1A9E8F' }, { k: 'is', cor: 'C77700' }, { k: 'cr', cor: '9FB4C2' }, { k: 'sd', cor: 'D1495B' }] };
+    if (id === 'comparativo') R.grafico = { titulo: 'CBS, IBS e IS por ano — período importado', secao: 'CBS, IBS e IS por ano (período importado)', cat: 'ano', series: [{ k: 'cbsDeb', cor: '0E3A47' }, { k: 'ibsDeb', cor: '1A9E8F' }, { k: 'isDeb', cor: 'C77700' }, { k: 'cr', cor: '9FB4C2' }, { k: 'sd', cor: 'D1495B' }] };
   }
   function reportHtml(R) {
     let i = 0;
@@ -6180,13 +6661,13 @@ table.t tr.sel td{background:var(--accent-bg)}
   }
   async function exportReport(id, fmt) {
     const R = buildReport(id); const nome = 'relatorio-' + id + '-' + slug(S.config.projeto) + '-' + S.ui.sim.ano + '-' + stamp();
-    const data = fmt === 'xlsx' ? REP.xlsx(R) : fmt === 'pdf' ? REP.pdf(R) : fmt === 'csv' ? REP.csv(R) : REP.json(R);
+    const data = fmt === 'xlsx' ? await RTS_XLSX.gerar(R) : fmt === 'pdf' ? REP.pdf(R) : fmt === 'csv' ? REP.csv(R) : REP.json(Object.assign({}, R, { base: undefined, pivots: undefined, grafico: undefined }));
     await saveFile(nome + '.' + fmt, data);
   }
   PAGES.relatorios = () => {
     const has = temDados();
-    return head('Fase 10 · Relatórios', 'Relatórios Gerenciais', 'Oito relatórios gerados a partir dos dados, regras, premissas e cenários da sessão, no exercício e cenário selecionados. Exportação em XLSX, CSV, PDF e JSON, gerados no próprio navegador.') + simControls(`<div class="row"><span class="muted" style="width:120px">Cenário</span>${cenSelect()}</div>`) + (has ? '' : `<div class="notice info" style="margin-bottom:14px">${ic('info')}<div>Sem documentos importados, só o relatório de cenários traz conteúdo.</div></div>`) +
-      `<div class="grid g2">${REPORTS.map(r => `<div class="card"><div class="card-h">${ic('book')}<h3>${esc(r.t)}</h3></div><div class="card-b"><p class="muted" style="margin:0 0 12px;min-height:38px">${esc(r.d)}</p><div class="row"><button class="btn sm" data-act="rep-view" data-id="${r.id}">${ic('search')} Visualizar</button><button class="btn sm pri" data-act="rep-exp" data-id="${r.id}" data-f="xlsx">XLSX</button><button class="btn sm" data-act="rep-exp" data-id="${r.id}" data-f="pdf">PDF</button><button class="btn sm" data-act="rep-exp" data-id="${r.id}" data-f="csv">CSV</button><button class="btn sm" data-act="rep-exp" data-id="${r.id}" data-f="json">JSON</button></div></div></div>`).join('')}</div>
+    return head('Fase 10 · Relatórios', 'Relatórios Gerenciais', REPORTS.length + ' relatórios de CBS, IBS e Imposto Seletivo gerados a partir dos dados, regras, premissas e cenários da sessão. O Excel sai pronto para a diretoria: capa com índice, painel de indicadores, tabelas formatadas com totais, gráfico, base de dados e tabelas dinâmicas integradas.') + simControls(`<div class="row"><span class="muted" style="width:120px">Cenário</span>${cenSelect()}</div>`) + (has ? '' : `<div class="notice info" style="margin-bottom:14px">${ic('info')}<div>Sem documentos importados, só o relatório de cenários traz conteúdo.</div></div>`) +
+      `<div class="grid g2">${REPORTS.map(r => `<div class="card"><div class="card-h">${ic('book')}<h3>${esc(r.t)}</h3>${r.novo ? '<span class="badge ok" style="margin-left:auto">novo</span>' : ''}</div><div class="card-b"><p class="muted" style="margin:0 0 12px;min-height:38px">${esc(r.d)}</p><div class="row"><button class="btn sm" data-act="rep-view" data-id="${r.id}">${ic('search')} Visualizar</button><button class="btn sm pri" data-act="rep-exp" data-id="${r.id}" data-f="xlsx">XLSX</button><button class="btn sm" data-act="rep-exp" data-id="${r.id}" data-f="pdf">PDF</button><button class="btn sm" data-act="rep-exp" data-id="${r.id}" data-f="csv">CSV</button><button class="btn sm" data-act="rep-exp" data-id="${r.id}" data-f="json">JSON</button></div></div></div>`).join('')}</div>
       <div style="height:14px"></div><div class="card"><div class="card-b row"><div style="flex:1"><b>Pacote completo</b><div class="muted" style="font-size:12.5px">Os oito relatórios em um único arquivo JSON, para integração com outros sistemas.</div></div><button class="btn" data-act="rep-all">${ic('download')} Exportar todos (JSON)</button></div></div>`;
   };
 
@@ -6274,6 +6755,13 @@ table.t tr.sel td{background:var(--accent-bg)}
       case 'rule-dup': { const r = S.regras.find(x => x.id === el.dataset.id); if (r) { const n = JSON.parse(JSON.stringify(r)); n.id = r.id + '-COPIA'; let i = 2; while (S.regras.some(x => x.id === n.id)) n.id = r.id + '-COPIA' + i++; n.origem = 'usuario'; n.status = 'necessita_validacao'; delete n.validadoEm; n.nome = r.nome + ' (cópia)'; ruleForm(n, true); } break; }
       case 'rule-toggle': { const r = S.regras.find(x => x.id === el.dataset.id); if (r) { r.ativa = !r.ativa; regrasChanged(); render(); ruleDetail(r.id); } break; }
       case 'rule-del': { const r = S.regras.find(x => x.id === el.dataset.id); if (r && await confirmBox('Excluir regra?', esc(r.nome), 'Excluir', true)) { S.regras = S.regras.filter(x => x !== r); regrasChanged(); closeDrawer(); render(); } break; }
+      case 'rule-restore': {
+        const i = S.regras.findIndex(x => x.id === el.dataset.id); const o = regraOriginal(el.dataset.id); if (i < 0 || !o) break;
+        const r = S.regras[i];
+        if (!await confirmBox('Restaurar a regra original?', `<b>${esc(o.nome)}</b> volta para CST <b>${esc(o.cst)}</b> · cClassTrib <b>${esc(o.cClassTrib)}</b> · efeito <b>${esc(EFEITO_LBL[o.efeito.tipo] || o.efeito.tipo)}</b>${+o.efeito.pRedCBS ? ' · redução ' + fmtN(+o.efeito.pRedCBS) + '%' : ' · sem redução'}. NCMs, naturezas, fundamento e vigência também voltam ao cadastro original. A sua validação é mantida.`, 'Restaurar')) break;
+        S.regras[i] = Object.assign(JSON.parse(JSON.stringify(o)), { status: r.status, validadoEm: r.validadoEm, ativa: true });
+        regrasChanged(); try { salvarAgora(); } catch (e) {} toast('ok', 'Regra restaurada: ' + o.nome + '. A simulação foi recalculada.'); closeDrawer(); render(); break;
+      }
       case 'rule-validate': { const r = S.regras.find(x => x.id === el.dataset.id); if (!r) break; const test = Object.assign({}, r, { status: 'validada_usuario' }); const e = RR.validarRegra(test); if (e.length) { toast('err', e.join(' ')); break; } if (await confirmBox('Marcar como validada?', 'Confirme que você conferiu <b>' + esc(fonteTxt(r)) + '</b>, a lista de NCM e o cClassTrib <b>' + esc(r.cClassTrib || '—') + '</b> no texto oficial e na tabela vigente. A data de hoje ficará registrada na regra.', 'Confirmar validação')) { r.status = 'validada_usuario'; r.validadoEm = new Date().toISOString().slice(0, 10); regrasChanged(); render(); ruleDetail(r.id); } break; }
       case 'rule-unvalidate': { const r = S.regras.find(x => x.id === el.dataset.id); if (r) { r.status = 'fonte_secundaria'; delete r.validadoEm; regrasChanged(); render(); ruleDetail(r.id); } break; }
       case 'rules-export': saveFile('base-regras-ibs-cbs-' + stamp() + '.json', RR.exportarRegras(S.regras, S.premissas)); break;
@@ -6388,5 +6876,5 @@ table.t tr.sel td{background:var(--accent-bg)}
 </script>
 <script>/* PWA: só quando servido por http(s) (GitHub Pages); no arquivo local não faz nada */
 (function(){if(!('serviceWorker' in navigator)||location.protocol==='file:')return;navigator.serviceWorker.register('sw.js').catch(function(){});
-var V='2026.11.17-1754';fetch('versao.json?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){if(j&&j.versao&&j.versao!==V){var b=document.createElement('div');b.style.cssText='position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:99999;background:#0b1a24;color:#e6f1f5;border:1px solid #2bc4ae;border-radius:10px;padding:10px 14px;font:13px system-ui;box-shadow:0 8px 30px rgba(0,0,0,.35)';b.innerHTML='Nova versão disponível ('+j.versao+'). <a href="#" style="color:#2bc4ae;font-weight:600;margin-left:8px">Atualizar</a>';b.querySelector('a').onclick=function(e){e.preventDefault();try{window.RTS_APP&&RTS_APP.salvarAgora&&RTS_APP.salvarAgora()}catch(_){}(window.caches?caches.keys().then(function(k){return Promise.all(k.map(function(x){return caches.delete(x)}))}):Promise.resolve()).finally(function(){location.reload()})};document.body.appendChild(b)}}).catch(function(){});})();</script></body>
+var V='2026.11.18-0914';fetch('versao.json?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){if(j&&j.versao&&j.versao!==V){var b=document.createElement('div');b.style.cssText='position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:99999;background:#0b1a24;color:#e6f1f5;border:1px solid #2bc4ae;border-radius:10px;padding:10px 14px;font:13px system-ui;box-shadow:0 8px 30px rgba(0,0,0,.35)';b.innerHTML='Nova versão disponível ('+j.versao+'). <a href="#" style="color:#2bc4ae;font-weight:600;margin-left:8px">Atualizar</a>';b.querySelector('a').onclick=function(e){e.preventDefault();try{window.RTS_APP&&RTS_APP.salvarAgora&&RTS_APP.salvarAgora()}catch(_){}(window.caches?caches.keys().then(function(k){return Promise.all(k.map(function(x){return caches.delete(x)}))}):Promise.resolve()).finally(function(){location.reload()})};document.body.appendChild(b)}}).catch(function(){});})();</script></body>
 </html>

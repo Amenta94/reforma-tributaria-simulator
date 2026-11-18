@@ -2446,7 +2446,7 @@ table.t tr.sel td{background:var(--accent-bg)}
 
   /* ---------------- natureza da operação pelo CFOP ---------------- */
   const NAT = {
-    venda: 'Venda / fornecimento', transferencia: 'Transferência entre estabelecimentos', devolucao: 'Devolução', exportacao: 'Exportação / operação com o exterior',
+    venda: 'Venda / fornecimento', transferencia: 'Transferência entre estabelecimentos', devolucao: 'Devolução', exportacao: 'Exportação / operação com o exterior', exportacao_indireta: 'Remessa com fim específico de exportação',
     remessa: 'Remessa / retorno (sem fornecimento)', compra: 'Aquisição', servico: 'Prestação de serviço', outros: 'Outras'
   };
   function natureza(cfop) {
@@ -2456,6 +2456,7 @@ table.t tr.sel td{background:var(--accent-bg)}
     if (d === '3') return 'compra';
     if ([151, 152, 153, 155, 156, 408, 409, 552, 557, 658, 659].includes(n)) return 'transferencia';
     const saida = d === '5' || d === '6';
+    if (saida && (n === 501 || n === 502)) return 'exportacao_indireta'; // remessa com fim específico de exportação (5501/5502/6501/6502)
     const devS = (n >= 201 && n <= 210) || (n >= 410 && n <= 413) || [503, 553, 555, 556, 660, 661, 662, 918, 919].includes(n);
     const devE = (n >= 201 && n <= 209) || (n >= 410 && n <= 411) || [503, 553, 660, 661, 662, 918, 919].includes(n);
     if (saida ? devS : devE) return 'devolucao';
@@ -2535,6 +2536,7 @@ table.t tr.sel td{background:var(--accent-bg)}
     R({ bens: true, id: 'LC214-164-PRODNC', grupo: 'Art. 164 — Produtor rural não contribuinte', nome: 'Aquisição de produtor rural ou integrado não contribuinte — fornecimento sem incidência', efeito: { tipo: 'nao_incidencia', pRedCBS: 100, pRedIBS: 100 }, cst: '410', cClassTrib: '410014', ncm: [''], natureza: ['compra'], sentido: 'E', destinatario: 'produtor_nao_contribuinte', fonte: { norma: LC, artigo: 'art. 164', anexo: '' }, prioridade: 97, condicional: true, condicoes: ['Fornecedor produtor rural ou produtor integrado que não seja contribuinte do IBS e da CBS (art. 164) — confirmar o enquadramento do fornecedor (opção pelo regime regular e limite de receita).', 'Não há IBS/CBS destacado na operação; o adquirente do regime regular pode ter crédito presumido (art. 168), calculado no Simulador de Créditos.', 'Contraparte identificada pelo CPF do fornecedor ou pela classificação em Simulador de Créditos → Fornecedores.'], obs: 'Compras de suíno em pé e de boi de produtor pessoa física. cClassTrib 410014 (CST 410) conferido na tabela do Portal da Conformidade Fácil em 16/11/2026: "Fornecimento de produtor rural não contribuinte, observado o art. 164".' }),
     R({ bens: true, id: 'LC214-168-CREDPRES', grupo: 'Art. 168 — Crédito presumido (aquisições)', nome: 'Crédito presumido na aquisição de produtor rural ou integrado não contribuinte', efeito: { tipo: 'credito_presumido', pRedCBS: 0, pRedIBS: 0 }, cst: '', cClassTrib: '', ncm: [''], natureza: ['compra'], sentido: 'E', destinatario: 'produtor_nao_contribuinte', fonte: { norma: LC, artigo: 'art. 168', anexo: '' }, prioridade: 80, status: 'necessita_validacao', condicional: true, condicoes: ['Fornecedor produtor rural ou integrado não contribuinte (art. 164).', 'Percentuais fixados anualmente por ato conjunto do Ministro da Fazenda e do Comitê Gestor — não cadastrados.', 'Fórmula referida em fontes secundárias: CP = VO × C / (1 + C).'] }),
 
+    R({ bens: true, id: 'NAT-EXPORT-IND', grupo: 'Natureza da operação', nome: 'Remessa com fim específico de exportação (exportação indireta) — suspensão', efeito: { tipo: 'suspensao', pRedCBS: 100, pRedIBS: 100 }, cst: '550', cClassTrib: '550001', ncm: [''], natureza: ['exportacao_indireta'], fonte: { norma: LC, artigo: 'art. 97 (suspensão no fornecimento com fim específico de exportação a empresa comercial exportadora); tabela cClassTrib 550001 — art. 82', anexo: '' }, prioridade: 99, status: 'fonte_secundaria', condicional: true, condicoes: ['Suspensão condicionada ao cumprimento, pela empresa comercial exportadora, dos requisitos do art. 97 da LC 214/2025 — conferir no texto legal.', 'CFOP 5501/5502/6501/6502. Se a exportação não se concretizar nas condições da lei, a suspensão não se mantém — conferir as consequências no texto legal.'] }),
     R({ bens: true, id: 'NAT-EXPORT', grupo: 'Natureza da operação', nome: 'Exportação de bens', efeito: { tipo: 'nao_incidencia', pRedCBS: 100, pRedIBS: 100 }, cst: '', cClassTrib: '', ncm: [''], natureza: ['exportacao'], fonte: { norma: 'EC 132/2023 / ' + LC, artigo: 'imunidade das exportações — dispositivo a citar', anexo: '' }, prioridade: 99, status: 'necessita_validacao', condicoes: ['Tabela do portal (16/11/2026) traz mais de um código para exportação: 410004 (exportações de bens e serviços, art. 8º) e 550001 (exportações de bens materiais, art. 82). Defina o aplicável à operação.'] }),
     R({ id: 'NAT-TRANSF', grupo: 'Natureza da operação', nome: 'Transferência entre estabelecimentos do mesmo contribuinte — não incidência', efeito: { tipo: 'nao_incidencia', pRedCBS: 100, pRedIBS: 100 }, cst: '410', cClassTrib: '410002', ncm: [''], natureza: ['transferencia'], sentido: '*', fonte: { norma: LC, artigo: 'art. 6º, II', anexo: '' }, prioridade: 99, condicoes: ['Estabelecimentos do mesmo contribuinte (mesma raiz de CNPJ); documento fiscal eletrônico obrigatório.'] }),
     R({ id: 'NAT-DEVOL', grupo: 'Natureza da operação', nome: 'Devolução — segue a tributação do documento de origem', efeito: { tipo: 'verificar', pRedCBS: 0, pRedIBS: 0 }, cst: '', cClassTrib: '', ncm: [''], natureza: ['devolucao'], sentido: '*', fonte: { norma: LC, artigo: 'a confirmar', anexo: '' }, prioridade: 99, status: 'necessita_validacao', condicoes: ['Classificação depende do documento referenciado.'] }),
@@ -2720,7 +2722,7 @@ table.t tr.sel td{background:var(--accent-bg)}
     if (nat === 'venda' || nat === 'servico') return 'debito';
     if (nat === 'compra') return 'credito';
     if (nat === 'devolucao') return dir === 'E' ? 'estorno_debito' : 'estorno_credito';
-    if (nat === 'exportacao') return 'imune';
+    if (nat === 'exportacao' || nat === 'exportacao_indireta') return 'imune';
     if (nat === 'transferencia') return 'nao_incidencia';
     return 'nao_simulado';
   }
@@ -3064,6 +3066,8 @@ table.t tr.sel td{background:var(--accent-bg)}
   function linhaOperacao(o) {
     const t = TIPOS_OP[o.tipo] || TIPOS_OP.venda; const inter = o.ufOrig && o.ufDest && o.ufOrig !== o.ufDest;
     const cfop = o.cfop || (inter ? t.cfop.inter : t.cfop.interna);
+    // o CFOP informado manda no sentido: 1/2/3 = entrada, 5/6/7 = saída (ex.: transferência recebida 1152 é entrada, não saída)
+    const dir = /^[123]/.test(cfop) ? 'E' : /^[567]/.test(cfop) ? 'S' : t.dir;
     const v = o.valor || 0, desc = o.desconto || 0, fr = o.frete || 0;
     const bcICMS = Math.round((v - desc + fr) * (1 - (o.redBC || 0) / 100));
     const icms = Math.round(bcICMS * (o.aliqICMS || 0) / 100);
@@ -3071,13 +3075,13 @@ table.t tr.sel td{background:var(--accent-bg)}
     const basePC = v - desc + fr - icms; // exclusão do ICMS da base (Tema 69 STF / Lei 14.592/2023 nos créditos)
     const pis = Math.round(basePC * pc.pis / 100), cofins = Math.round(basePC * pc.cofins / 100);
     const ipi = Math.round((v - desc + fr) * (o.aliqIPI || 0) / 100), st = o.valorST || 0;
-    const row = { ncm: String(o.ncm || '').replace(/\D/g, ''), cfop, dir: t.dir, data: (o.ano || 2026) + '-06-30', vItem: v, vDesc: desc, vFrete: fr, vBC: bcICMS, vICMS: icms, vST: st, vIPI: ipi, vPIS: pis, vCOFINS: cofins, partDoc: '', semCreditoAtual: !!t.semCreditoAtual };
+    const row = { ncm: String(o.ncm || '').replace(/\D/g, ''), cfop, dir, data: (o.ano || 2026) + '-06-30', vItem: v, vDesc: desc, vFrete: fr, vBC: bcICMS, vICMS: icms, vST: st, vIPI: ipi, vPIS: pis, vCOFINS: cofins, partDoc: '', semCreditoAtual: !!t.semCreditoAtual || /^[12](556|407)$/.test(cfop) };
     return { t, cfop, row, atual: { icms, st, ipi, pis, cofins } };
   }
   function simularOperacao(o, ctx) {
     const { t, cfop, row, atual } = linhaOperacao(o);
     const comp = root.RTS_CMP.compararLinha(row, { ano: o.ano, cenario: o.cenario || 'precos', regras: ctx.regras, premissas: ctx.premissas, creditaIPI: !!o.creditaIPI, destinatario: o.contraparte && o.contraparte !== '*' ? o.contraparte : undefined, destinacao: o.destinacao && o.destinacao !== '*' ? o.destinacao : undefined });
-    const cls = RR.classificar(ctx.regras, { ncm: row.ncm, cfop, sentido: t.dir, destinatario: o.contraparte || '*', destinacao: o.destinacao || '*', data: row.data });
+    const cls = RR.classificar(ctx.regras, { ncm: row.ncm, cfop, sentido: row.dir, destinatario: o.contraparte || '*', destinacao: o.destinacao || '*', data: row.data });
     const custo = o.custo || 0;
     return { cfop, natureza: RR.natureza(cfop), tipo: t.nome, row, atual, comp, cls, margemA: custo ? comp.rlA - custo : null, margemN: custo ? comp.rlN - custo : null };
   }
@@ -3941,6 +3945,7 @@ table.t tr.sel td{background:var(--accent-bg)}
     if (pd) { const R = root.RTS; if (pd.length === 14 ? !R.cnpjValido(pd) : pd.length === 11 ? !R.cpfValido(pd) : true) avisos.push('CNPJ/CPF "' + g('partDoc') + '" com dígito verificador ou tamanho inválido.'); }
     if (o.contraparte === 'produtor_nao_contribuinte' && pd.length === 14) avisos.push('Contraparte produtor rural não contribuinte com CNPJ: confira o enquadramento (art. 164).');
     const cf = g('cfop').replace(/\D/g, ''); if (cf) { if (/^\d{4}$/.test(cf)) o.cfop = cf; else erros.push('CFOP "' + g('cfop') + '" inválido.'); }
+    if (o.cfop && o.tipo && C.TIPOS_OP[o.tipo]) { const dTipo = C.TIPOS_OP[o.tipo].dir, dCf = /^[123]/.test(o.cfop) ? 'E' : /^[567]/.test(o.cfop) ? 'S' : dTipo; if (dTipo !== dCf) avisos.push('CFOP ' + o.cfop + ' é de ' + (dCf === 'E' ? 'entrada' : 'saída') + ', mas o tipo "' + o.tipo + '" é de ' + (dTipo === 'E' ? 'entrada' : 'saída') + ': o sentido segue o CFOP (' + (dCf === 'E' ? 'Entrada' : 'Saída') + ').'); }
     const an = g('ano').replace(/\D/g, ''); if (an) { const a = +an; if (a >= 2026 && a <= 2033) o.ano = a; else erros.push('Ano "' + g('ano') + '" fora de 2026–2033.'); }
     if (o.desconto > o.valor) erros.push('Desconto maior que o valor do item.');
     if (o.tipo && C.TIPOS_OP[o.tipo] && o.ufOrig && o.ufDest) { if (o.tipo === 'exportacao' && o.ufDest !== 'EX') avisos.push('Exportação com UF destino diferente de EX.'); if (o.tipo === 'importacao' && o.ufOrig !== 'EX') avisos.push('Importação com UF origem diferente de EX.'); }
@@ -4008,8 +4013,8 @@ table.t tr.sel td{background:var(--accent-bg)}
       if (!L.ok) continue; const o = L.o; const { t, cfop, row } = C.linhaOperacao(Object.assign({}, o, { ano: 2026 }));
       const f = o.periodo === 'mes' || !o.periodo ? 1 : 1 / 12; const k = (v) => Math.round((v || 0) * f);
       const nome = o.nome || ('Linha ' + o.linha); const part = o.partDoc || ('PL-' + o.linha);
-      out.push({ fonte: 'Planilha', docId: 'PL' + o.linha, chave: '', linhaPlanilha: o.linha, data: '2026-01-15', mes: '2026-01', dir: t.dir, status: 'autorizada', numero: 'L' + o.linha, serie: '', modelo: 'PL',
-        partDoc: part, partNome: nome, partUF: t.dir === 'S' ? o.ufDest : o.ufOrig, ufOrig: o.ufOrig, ufDest: o.ufDest, emitDoc: '', destDoc: '',
+      out.push({ fonte: 'Planilha', docId: 'PL' + o.linha, chave: '', linhaPlanilha: o.linha, data: '2026-01-15', mes: '2026-01', dir: row.dir, status: 'autorizada', numero: 'L' + o.linha, serie: '', modelo: 'PL',
+        partDoc: part, partNome: nome, partUF: row.dir === 'S' ? o.ufDest : o.ufOrig, ufOrig: o.ufOrig, ufDest: o.ufDest, emitDoc: '', destDoc: '',
         tipo: 'mercadoria', tipoOp: o.tipo, periodo: o.periodo, contraparte: o.contraparte, destinacao: o.destinacao, tipoFornecedor: o.contraparte === 'produtor_nao_contribuinte' ? 'produtor_nc' : (o.partDoc ? '' : 'regular'), semCreditoAtual: row.semCreditoAtual,
         ncm: o.ncm, cfop, cst: '', produto: o.ncm, descricao: nome, qtd: 1, unid: 'UN',
         vItem: k(row.vItem), vDesc: k(row.vDesc), vFrete: k(row.vFrete), vOutro: 0, vBC: k(row.vBC), vICMS: k(row.vICMS), vST: k(row.vST), vIPI: k(row.vIPI), vPIS: k(row.vPIS), vCOFINS: k(row.vCOFINS), vIBS: 0, vCBS: 0, cClassTrib: '', custo: k(o.custo) });
@@ -4558,6 +4563,7 @@ table.t tr.sel td{background:var(--accent-bg)}
       await T('Situação', 'Regra conferida no texto oficial, sem condição, na tabela → Confirmado', () => eq(st({ regraId: 'X', status: 'validada_usuario', enq: 'sugerida', tabSit: 'importada' }), 'confirmado'));
     }
 
+    await T('Motor de regras', 'CFOP 5501/6501 (fim específico de exportação) não é venda tributada: suspensão 550/550001', () => { const RRx = root.RTS_RULES; const c = RRx.classificar(RRx.baseRules(), { ncm: '15021012', cfop: '5501', sentido: 'S', destinatario: '*', destinacao: '*', data: '2027-03-01' }); return eq(RRx.natureza('6501'), 'exportacao_indireta') && eq(c.regra && c.regra.id, 'NAT-EXPORT-IND') && eq(c.cst, '550') && eq(c.cClassTrib, '550001') && eq(root.RTS_SIM.papel('exportacao_indireta', 'S'), 'imune'); });
     /* EFD-Contribuições */
     if (root.RTS_CONTRIB) {
       const RC = root.RTS_CONTRIB;
@@ -6539,7 +6545,7 @@ table.t tr.sel td{background:var(--accent-bg)}
       const r = simResult(ano); const T = r.T; const gc = colsRT(ano);
       if (T.valorValidar) R.avisos.push(money(T.valorValidar) + ' das operações estão em enquadramentos "Sem fundamento" — NECESSITA DE VALIDAÇÃO NA LEGISLAÇÃO/TABELA OFICIAL VIGENTE.');
       R.avisos.push('Valores do período importado (sem anualização). Somente CBS, IBS e Imposto Seletivo.');
-      if (id === 'empresa') R.secoes.push({ aba: 'Por estabelecimento', titulo: 'CBS, IBS e IS por estabelecimento — ' + ano, tipo: 'tabela', cols: [{ k: 'estab', t: 'Estabelecimento' }].concat(gc), rows: somaRT(r.linhas, L => L.estab || 'XML', L => ({ estab: L.estab ? fmtDoc(L.estab) + (efdNome(L.estab) ? ' · ' + efdNome(L.estab) : '') : 'Somente XML (sem EFD)' })) });
+      if (id === 'empresa') R.secoes.push({ aba: 'Por estabelecimento', titulo: 'CBS, IBS e IS por estabelecimento — ' + ano, tipo: 'tabela', cols: [{ k: 'estab', t: 'Estabelecimento' }].concat(gc), rows: somaRT(r.linhas, L => L.estab || L.fonte || 'XML', L => ({ estab: L.estab ? fmtDoc(L.estab) + (efdNome(L.estab) ? ' · ' + efdNome(L.estab) : '') : L.fonte === 'Planilha' ? 'Planilha de operações' : 'Somente XML (sem EFD)' })) });
       if (id === 'operacao') R.secoes.push({ aba: 'Por natureza e CFOP', titulo: 'CBS, IBS e IS por natureza e CFOP — ' + ano, tipo: 'tabela', cols: [{ k: 'nat', t: 'Natureza' }, { k: 'cfop', t: 'CFOP' }].concat(gc), rows: somaRT(r.linhas, L => L.nat + '|' + L.cfop, L => ({ nat: RTS_RULES.NAT[L.nat] || L.nat, cfop: L.cfop })).sort((a, b) => b.vendas + b.compras - a.vendas - a.compras) });
       if (id === 'comparativo') {
         const sdo = T.cbsLiq + T.ibsLiq + (T.isDeb || 0);
@@ -6629,9 +6635,9 @@ table.t tr.sel td{background:var(--accent-bg)}
     const r = simResult(ano); const m = new Map(); const PL = SM.PAPEL_LBL;
     for (const L of r.linhas) {
       const mes = (L.data || '').slice(0, 7); const st = CLF.situacao(L);
-      const k = [mes, L.estab, L.papel, L.diferido ? 1 : 0, L.nat, L.cfop, L.ncm, L.regraId, L.cClassTrib, L.cst, st.k, L.partUF].join('|');
+      const k = [mes, L.estab, L.dir, L.papel, L.diferido ? 1 : 0, L.nat, L.cfop, L.ncm, L.regraId, L.cClassTrib, L.cst, st.k, L.partUF].join('|');
       let g = m.get(k);
-      if (!g) { g = { mes, estab: L.estab ? fmtDoc(L.estab) + (efdNome(L.estab) ? ' · ' + efdNome(L.estab) : '') : 'Somente XML', sent: L.dir === 'S' ? 'Saída' : 'Entrada', apur: L.diferido ? 'Diferido' : (PL[L.papel] || L.papel), nat: RTS_RULES.NAT[L.nat] || L.nat || '', cfop: L.cfop || '', ncm: L.ncm || '', desc: L.descricao || '', regra: L.regra || '', cct: L.cClassTrib || '', cst: L.cst || '', sit: st.lbl, uf: L.partUF || '', red: L.pRed || 0, n: 0, valor: 0, base: 0, cbsD: 0, ibsD: 0, is: 0, cbsC: 0, ibsC: 0 }; m.set(k, g); }
+      if (!g) { g = { mes, estab: L.estab ? fmtDoc(L.estab) + (efdNome(L.estab) ? ' · ' + efdNome(L.estab) : '') : L.fonte === 'Planilha' ? 'Planilha de operações' : 'Somente XML', sent: L.dir === 'S' ? 'Saída' : 'Entrada', apur: L.diferido ? 'Diferido' : (PL[L.papel] || L.papel), nat: RTS_RULES.NAT[L.nat] || L.nat || '', cfop: L.cfop || '', ncm: L.ncm || '', desc: L.descricao || '', regra: L.regra || '', cct: L.cClassTrib || '', cst: L.cst || '', sit: st.lbl, uf: L.partUF || '', red: L.pRed || 0, n: 0, valor: 0, base: 0, cbsD: 0, ibsD: 0, is: 0, cbsC: 0, ibsC: 0 }; m.set(k, g); }
       g.n++; const sg = L.papel.startsWith('estorno') ? -1 : 1; g.valor += sg * (L.vItem || 0);
       if (L.papel === 'credito' || L.papel === 'estorno_credito') { g.cbsC += sg * (L.cbs || 0); g.ibsC += sg * (L.ibs || 0); }
       else if ((L.papel === 'debito' || L.papel === 'estorno_debito') && !L.diferido) { g.base += sg * (L.base || 0); g.cbsD += sg * (L.cbs || 0); g.ibsD += sg * (L.ibs || 0); g.is += sg * (L.vIS || 0); }
@@ -6867,7 +6873,16 @@ table.t tr.sel td{background:var(--accent-bg)}
   }
   function limparSalvo() { if (store) { store.removeItem(PK); store.removeItem(PK_LOTE); } ultimoSalvo = ''; ultimoLote = ''; salvoInfo = null; updateSalvo(); }
   function updateSalvo() { const el = $('#salvoInd'); if (!el) return; if (!store) { el.innerHTML = ''; return; } if (S.config.autosave === false) { el.innerHTML = `<span class="dot"></span>salvamento desligado`; return; } el.innerHTML = salvoInfo && salvoInfo.ok ? `<span class="dot ok"></span>Validações salvas ${salvoInfo.em ? salvoInfo.em.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : ''}` : salvoInfo && salvoInfo.erro ? `<span class="dot warn"></span>não foi possível salvar` : ''; el.title = 'Validações, regras, premissas, fornecedores, cenários e a planilha ficam salvos neste navegador e voltam ao reabrir o app — inclusive depois de atualizações. XML e EFD não são guardados.' + (salvoInfo && salvoInfo.loteGrande ? ' A planilha é grande demais para o armazenamento do navegador e não foi guardada.' : ''); }
-  function boot() { const rest = restaurarSalvo(); shell(); bindGlobal(); go(); getDl(); updateSalvo(); setInterval(salvarAgora, 1500); window.addEventListener('beforeunload', salvarAgora); if (rest && (rest.nDec || rest.nReg || rest.lote)) setTimeout(() => toast('ok', 'Restaurado deste navegador: ' + [rest.nDec ? rest.nDec + ' validação(ões)' : '', rest.nReg ? rest.nReg + ' regra(s) ajustada(s)' : '', rest.lote ? 'planilha de operações' : ''].filter(Boolean).join(', ') + '.'), 300); }
+  /** Correção única: a regra geral salva com CST/cClassTrib/redução diferentes da tributação integral distorce todas as operações sem regra específica. */
+  function corrigirRegraGeral() {
+    const FLAG = 'rts.fix.regraGeral.v1'; let st = null; try { st = window.localStorage; } catch (e) {}
+    try { if (st && st.getItem(FLAG)) return null; } catch (e) {}
+    const g = regraGeralAlterada(); const o = regraOriginal('LC214-GERAL'); let msg = null;
+    if (g && o) { const i = S.regras.indexOf(g); const antes = (g.nome || '') + ' · CST ' + (g.cst || '—') + ' · ' + (g.cClassTrib || '—') + (+((g.efeito || {}).pRedCBS) ? ' · ' + (g.efeito.pRedCBS) + '%' : ''); S.regras[i] = Object.assign(JSON.parse(JSON.stringify(o)), { status: g.status, validadoEm: g.validadoEm, ativa: true }); invalidate(); msg = 'A regra geral estava salva como "' + antes + '" e foi restaurada para Tributação integral (CST 000 · cClassTrib 000001 · sem redução). Os itens sem regra específica voltam a ser 100% tributados.'; }
+    try { if (st) st.setItem(FLAG, new Date().toISOString()); } catch (e) {}
+    return msg;
+  }
+  function boot() { const rest = restaurarSalvo(); const fixG = corrigirRegraGeral(); shell(); bindGlobal(); go(); getDl(); updateSalvo(); setInterval(salvarAgora, 1500); window.addEventListener('beforeunload', salvarAgora); if (rest && (rest.nDec || rest.nReg || rest.lote)) setTimeout(() => toast('ok', 'Restaurado deste navegador: ' + [rest.nDec ? rest.nDec + ' validação(ões)' : '', rest.nReg ? rest.nReg + ' regra(s) ajustada(s)' : '', rest.lote ? 'planilha de operações' : ''].filter(Boolean).join(', ') + '.'), 300); if (fixG) setTimeout(() => { try { salvarAgora(); } catch (e) {} toast('warn', fixG); }, 900); }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
   window.RTS_APP = { S, salvarAgora, restaurarSalvo, limparSalvo, act, importXmlFiles, importEfdFiles, loadSample, render, go, buildReport, _estab: (l, f) => estabResumo(l, f), _scen: () => scenResult(cenAtivo()) };
@@ -6876,5 +6891,5 @@ table.t tr.sel td{background:var(--accent-bg)}
 </script>
 <script>/* PWA: só quando servido por http(s) (GitHub Pages); no arquivo local não faz nada */
 (function(){if(!('serviceWorker' in navigator)||location.protocol==='file:')return;navigator.serviceWorker.register('sw.js').catch(function(){});
-var V='2026.11.18-0914';fetch('versao.json?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){if(j&&j.versao&&j.versao!==V){var b=document.createElement('div');b.style.cssText='position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:99999;background:#0b1a24;color:#e6f1f5;border:1px solid #2bc4ae;border-radius:10px;padding:10px 14px;font:13px system-ui;box-shadow:0 8px 30px rgba(0,0,0,.35)';b.innerHTML='Nova versão disponível ('+j.versao+'). <a href="#" style="color:#2bc4ae;font-weight:600;margin-left:8px">Atualizar</a>';b.querySelector('a').onclick=function(e){e.preventDefault();try{window.RTS_APP&&RTS_APP.salvarAgora&&RTS_APP.salvarAgora()}catch(_){}(window.caches?caches.keys().then(function(k){return Promise.all(k.map(function(x){return caches.delete(x)}))}):Promise.resolve()).finally(function(){location.reload()})};document.body.appendChild(b)}}).catch(function(){});})();</script></body>
+var V='2026.11.18-0946';fetch('versao.json?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){if(j&&j.versao&&j.versao!==V){var b=document.createElement('div');b.style.cssText='position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:99999;background:#0b1a24;color:#e6f1f5;border:1px solid #2bc4ae;border-radius:10px;padding:10px 14px;font:13px system-ui;box-shadow:0 8px 30px rgba(0,0,0,.35)';b.innerHTML='Nova versão disponível ('+j.versao+'). <a href="#" style="color:#2bc4ae;font-weight:600;margin-left:8px">Atualizar</a>';b.querySelector('a').onclick=function(e){e.preventDefault();try{window.RTS_APP&&RTS_APP.salvarAgora&&RTS_APP.salvarAgora()}catch(_){}(window.caches?caches.keys().then(function(k){return Promise.all(k.map(function(x){return caches.delete(x)}))}):Promise.resolve()).finally(function(){location.reload()})};document.body.appendChild(b)}}).catch(function(){});})();</script></body>
 </html>

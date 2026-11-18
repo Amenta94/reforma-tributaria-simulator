@@ -108,8 +108,8 @@ a{color:var(--accent);text-decoration:none}
 .inp,.sel{height:32px;border-radius:8px;border:1px solid var(--line2);background:var(--panel);padding:0 10px;outline:none;min-width:0}
 .inp:focus,.sel:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
 .inp.sm,.sel.sm{height:28px;font-size:12.5px}
-label.f{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--muted)}
-label.f>span{font-weight:500}
+label.f,div.f{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--muted)}
+label.f>span,div.f>span{font-weight:500}
 .seg{display:inline-flex;border:1px solid var(--line2);border-radius:8px;padding:2px;background:var(--panel)}
 .seg button{border:0;background:transparent;height:26px;padding:0 10px;border-radius:6px;cursor:pointer;color:var(--muted);font-size:12.5px;font-weight:500}
 .seg button.on{background:var(--hover);color:var(--text);box-shadow:0 0 0 1px var(--line2) inset}
@@ -523,6 +523,16 @@ table.t tr.sel td{background:var(--accent-bg)}
 #busy .busy-box b{display:block;margin-bottom:2px}#busy .busy-box span{font-size:12.5px;color:var(--muted)}
 #busy .spin{width:22px;height:22px;flex:none;border-radius:50%;border:2.5px solid var(--accent-bg,rgba(43,196,174,.2));border-top-color:var(--accent);animation:busyspin .8s linear infinite}
 @keyframes busyspin{to{transform:rotate(360deg)}}
+
+.msel{position:relative}
+.msel>summary{list-style:none;cursor:pointer;display:flex;align-items:center;min-width:190px;max-width:320px;padding:0 26px 0 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:28px;user-select:none}
+.msel>summary::-webkit-details-marker{display:none}
+.msel>summary::after{content:'▾';position:absolute;right:9px;color:var(--text3)}
+.msel-p{position:absolute;z-index:60;top:calc(100% + 4px);left:0;min-width:320px;max-width:520px;max-height:340px;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:0 10px 28px rgba(0,0,0,.16);padding:6px}
+.msel-a{display:flex;gap:6px;justify-content:space-between;padding:2px 4px 6px;border-bottom:1px solid var(--line);margin-bottom:4px;position:sticky;top:-6px;background:var(--panel)}
+.msel-i{display:flex;gap:8px;align-items:flex-start;padding:5px 6px;border-radius:6px;font-size:12.5px;cursor:pointer;line-height:1.35}
+.msel-i:hover{background:var(--panel2)}
+.msel-i input{margin-top:2px;accent-color:var(--accent)}
 
 </style>
 <link rel="manifest" href="manifest.webmanifest"><meta name="theme-color" content="#0b1a24"><link rel="apple-touch-icon" href="icon-192.png"></head>
@@ -3633,28 +3643,41 @@ table.t tr.sel td{background:var(--accent-bg)}
   function pivotTable(sh, pc, def, cacheId, r0) {
     const lin = pc.campos.findIndex(c => c.nome === def.linha); const vals = def.valores.map(n => pc.campos.findIndex(c => c.nome === n)).filter(i => i >= 0);
     if (lin < 0 || !vals.length) return null;
-    const L = pc.campos[lin]; const soma = L.itens.map(() => vals.map(() => 0)); const tot = vals.map(() => 0);
-    for (let i = 0; i < pc.n; i++) { const it = L.idx.get(L.vals[i]); vals.forEach((f, j) => { const v = pc.campos[f].vals[i] || 0; soma[it][j] += v; tot[j] += v; }); }
+    const lin2 = def.linha2 ? pc.campos.findIndex(c => c.nome === def.linha2) : -1;
+    const L = pc.campos[lin], L2 = lin2 >= 0 ? pc.campos[lin2] : null;
+    const soma = L.itens.map(() => vals.map(() => 0)); const tot = vals.map(() => 0); const filhos = L.itens.map(() => new Map());
+    for (let i = 0; i < pc.n; i++) { const it = L.idx.get(L.vals[i]); let fs = null; if (L2) { const c = L2.idx.get(L2.vals[i]); fs = filhos[it].get(c); if (!fs) { fs = vals.map(() => 0); filhos[it].set(c, fs); } } vals.forEach((f, j) => { const v = pc.campos[f].vals[i] || 0; soma[it][j] += v; tot[j] += v; if (fs) fs[j] += v; }); }
     // ordena os itens pelo 1º valor (maior primeiro) quando pedido; senão alfabético (como o Excel)
+    const alfa = (itens) => (a, b) => String(itens[a]).localeCompare(String(itens[b]), 'pt-BR', { numeric: true });
     let ordem = L.itens.map((_, i) => i);
-    ordem.sort(def.ordenarPorValor ? (a, b) => Math.abs(soma[b][0]) - Math.abs(soma[a][0]) : (a, b) => String(L.itens[a]).localeCompare(String(L.itens[b]), 'pt-BR', { numeric: true }));
+    ordem.sort(def.ordenarPorValor ? (a, b) => Math.abs(soma[b][0]) - Math.abs(soma[a][0]) : alfa(L.itens));
     const nomesVal = def.valores.map((n, j) => def.rotulos && def.rotulos[j] ? def.rotulos[j] : 'Soma de ' + n);
     // grava a área visível
     sh.set(r0, 0, def.rotuloLinha || def.linha, S.cab); nomesVal.forEach((n, j) => sh.set(r0, 1 + j, n, S.cab)); sh.heights[r0] = 30;
-    ordem.forEach((it, k) => { sh.set(r0 + 1 + k, 0, L.itens[it] === '' ? '(vazio)' : L.itens[it]); vals.forEach((f, j) => sh.set(r0 + 1 + k, 1 + j, Math.round(soma[it][j] * 100) / 100, ehSaldo(nomesVal[j]) ? S.saldo : S.moeda)); });
-    const tr = r0 + 1 + ordem.length; sh.set(tr, 0, 'Total geral', S.totLbl); vals.forEach((f, j) => sh.set(tr, 1 + j, Math.round(tot[j] * 100) / 100, ehSaldo(nomesVal[j]) ? S.totSaldo : S.totMoeda));
-    sh.width(0, Math.min(55, Math.max(22, ...L.itens.slice(0, 500).map(v => String(v).length * 0.95 + 2)))); nomesVal.forEach((n, j) => sh.width(1 + j, Math.max(16, n.length * 0.9 + 2)));
+    const stV = (j) => ehSaldo(nomesVal[j]) ? S.saldo : S.moeda;
+    let rr = r0 + 1; const rowItems = [];
+    for (const it of ordem) {
+      sh.set(rr, 0, L.itens[it] === '' ? '(vazio)' : L.itens[it], L2 ? S.negrito : undefined); vals.forEach((f, j) => sh.set(rr, 1 + j, Math.round(soma[it][j] * 100) / 100, stV(j))); rr++;
+      rowItems.push(`<i><x v="${it}"/></i>`);
+      if (L2) { const ks = [...filhos[it].keys()].sort(def.ordenarPorValor ? (a, b) => Math.abs(filhos[it].get(b)[0]) - Math.abs(filhos[it].get(a)[0]) : alfa(L2.itens));
+        for (const c of ks) { sh.set(rr, 0, '    ' + (L2.itens[c] === '' ? '(vazio)' : L2.itens[c])); vals.forEach((f, j) => sh.set(rr, 1 + j, Math.round(filhos[it].get(c)[j] * 100) / 100, stV(j))); rr++; rowItems.push(`<i r="1"><x v="${c}"/></i>`); } }
+    }
+    const tr = rr; sh.set(tr, 0, 'Total geral', S.totLbl); vals.forEach((f, j) => sh.set(tr, 1 + j, Math.round(tot[j] * 100) / 100, ehSaldo(nomesVal[j]) ? S.totSaldo : S.totMoeda));
+    const larg = L.itens.slice(0, 500).concat(L2 ? L2.itens.slice(0, 500) : []);
+    sh.width(0, Math.min(60, Math.max(22, ...larg.map(v => String(v).length * 0.95 + (L2 ? 6 : 2))))); nomesVal.forEach((n, j) => sh.width(1 + j, Math.max(16, n.length * 0.9 + 2)));
     const locRef = `A${r0 + 1}:${col(vals.length)}${tr + 1}`;
+    const sortXml = (pos) => def.ordenarPorValor ? `<autoSortScope><pivotArea dataOnly="0" outline="0" fieldPosition="${pos}"><references count="1"><reference field="4294967294" count="1" selected="0"><x v="0"/></reference></references></pivotArea></autoSortScope>` : '';
     const pf = pc.campos.map((c, i) => {
-      if (i === lin) return `<pivotField axis="axisRow" showAll="0"${def.ordenarPorValor ? ' sortType="descending"' : ''}><items count="${c.itens.length + 1}">${c.itens.map((_, k) => `<item x="${k}"/>`).join('')}<item t="default"/></items>${def.ordenarPorValor ? `<autoSortScope><pivotArea dataOnly="0" outline="0" fieldPosition="0"><references count="1"><reference field="4294967294" count="1" selected="0"><x v="0"/></reference></references></pivotArea></autoSortScope>` : ''}</pivotField>`;
+      if (i === lin || i === lin2) return `<pivotField axis="axisRow" showAll="0"${def.ordenarPorValor ? ' sortType="descending"' : ''}><items count="${c.itens.length + 1}">${c.itens.map((_, k) => `<item x="${k}"/>`).join('')}<item t="default"/></items>${sortXml(i === lin ? 0 : 1)}</pivotField>`;
       if (vals.includes(i)) return '<pivotField dataField="1" showAll="0"/>';
       return '<pivotField showAll="0"/>';
     }).join('');
-    const rowItems = ordem.map((it, k) => k === 0 && it === 0 ? '<i><x/></i>' : `<i><x v="${it}"/></i>`).join('') + '<i t="grand"><x/></i>';
+    rowItems.push('<i t="grand"><x/></i>');
     const multi = vals.length > 1;
     const colPart = multi ? `<colFields count="1"><field x="-2"/></colFields><colItems count="${vals.length}">${vals.map((_, j) => j === 0 ? '<i><x/></i>' : `<i i="${j}"><x v="${j}"/></i>`).join('')}</colItems>` : '<colItems count="1"><i/></colItems>';
     const dataFields = vals.map((f, j) => `<dataField name="${X(nomesVal[j])}" fld="${f}" baseField="0" baseItem="0" numFmtId="${ehSaldo(nomesVal[j]) ? 168 : 166}"/>`).join('');
-    const xml = HEAD + `<pivotTableDefinition xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" name="${X(def.nome)}" cacheId="${cacheId}" applyNumberFormats="0" applyBorderFormats="0" applyFontFormats="0" applyPatternFormats="0" applyAlignmentFormats="0" applyWidthHeightFormats="1" dataCaption="Valores" updatedVersion="6" minRefreshableVersion="3" useAutoFormatting="1" itemPrintTitles="1" createdVersion="6" indent="0" outline="1" outlineData="1" multipleFieldFilters="0" rowHeaderCaption="${X(def.rotuloLinha || def.linha)}"><location ref="${locRef}" firstHeaderRow="${multi ? 0 : 1}" firstDataRow="1" firstDataCol="1"/><pivotFields count="${pc.campos.length}">${pf}</pivotFields><rowFields count="1"><field x="${lin}"/></rowFields><rowItems count="${ordem.length + 1}">${rowItems}</rowItems>${colPart}<dataFields count="${vals.length}">${dataFields}</dataFields><pivotTableStyleInfo name="PivotStyleMedium9" showRowHeaders="1" showColHeaders="1" showRowStripes="0" showColStripes="0" showLastColumn="1"/></pivotTableDefinition>`;
+    const rowFields = L2 ? `<rowFields count="2"><field x="${lin}"/><field x="${lin2}"/></rowFields>` : `<rowFields count="1"><field x="${lin}"/></rowFields>`;
+    const xml = HEAD + `<pivotTableDefinition xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" name="${X(def.nome)}" cacheId="${cacheId}" applyNumberFormats="0" applyBorderFormats="0" applyFontFormats="0" applyPatternFormats="0" applyAlignmentFormats="0" applyWidthHeightFormats="1" dataCaption="Valores" updatedVersion="6" minRefreshableVersion="3" useAutoFormatting="1" itemPrintTitles="1" createdVersion="6" indent="0" outline="1" outlineData="1" multipleFieldFilters="0" rowHeaderCaption="${X(def.rotuloLinha || def.linha)}"><location ref="${locRef}" firstHeaderRow="${multi ? 0 : 1}" firstDataRow="1" firstDataCol="1"/><pivotFields count="${pc.campos.length}">${pf}</pivotFields>${rowFields}<rowItems count="${rowItems.length}">${rowItems.join('')}</rowItems>${colPart}<dataFields count="${vals.length}">${dataFields}</dataFields><pivotTableStyleInfo name="PivotStyleMedium9" showRowHeaders="1" showColHeaders="1" showRowStripes="0" showColStripes="0" showLastColumn="1"/></pivotTableDefinition>`;
     return { xml, r1: tr };
   }
 
@@ -4696,7 +4719,7 @@ table.t tr.sel td{background:var(--accent-bg)}
   const S = {
     xml: new RTS.XmlStore(), efds: [], contribs: [], cruzamento: null, log: [], dirty: false,
     config: { tema: 'dark', cor: 'petroleo', projeto: 'Projeto sem título', empresa: '', tol: 1, pageSize: 25, keepRaw: false },
-    filters: { ini: '', fim: '', dir: '', uf: '', cfop: '', ncm: '', estab: '' },
+    filters: { ini: '', fim: '', dir: '', uf: '', cfop: '', ncm: '', emp: '', estab: '' },
     ui: { tab: {}, efdSel: null, dashSrc: null, consSrc: 'efdx', consDims: ['dir', 'cfop'], lastXml: null, cruzSev: '', issueSev: {} },
     cache: {},
     regras: RTS_RULES.baseRules(), premissas: JSON.parse(JSON.stringify(RTS_RULES.PREMISSAS)),
@@ -4761,11 +4784,25 @@ table.t tr.sel td{background:var(--accent-bg)}
       if (f.fim && (!r.data || r.data > f.fim)) return false;
       if (f.dir && r.dir !== f.dir) return false;
       if (f.uf && r.partUF !== f.uf) return false;
-      if (f.estab && r.estab !== undefined && r.estab !== f.estab) return false;
+      if (f.emp && r.estab !== undefined && !f.emp.split(',').includes(raizDe(r.estab))) return false;
+      if (f.estab && r.estab !== undefined && !f.estab.split(',').includes(r.estab)) return false;
       if (f.cfop) { const v = r.cfop !== undefined ? r.cfop : r.cfops; if (!v || !String(v).split(' ').some(c => c.startsWith(f.cfop.replace(/\D/g, '')))) return false; }
       if (f.ncm && !o.noNcm) { const v = r.ncm !== undefined ? r.ncm : r.ncms; if (v === undefined) return true; if (!v || !String(v).split(' ').some(c => c.startsWith(f.ncm.replace(/\D/g, '')))) return false; }
       return true;
     });
+  }
+  /** Seleção múltipla (caixas de marcar) para os filtros globais. Valor guardado como lista separada por vírgula. */
+  function msel(k, rot, todos, itens) {
+    const sel = (S.filters[k] || '').split(',').filter(Boolean); const n = sel.length;
+    const resumo = !n ? todos : n === 1 ? ((itens.find(x => x[0] === sel[0]) || [0, sel[0]])[1]) : n + ' selecionados';
+    return `<div class="f"><span>${rot}</span><details class="msel" data-msel="${k}" ${S.ui.msel === k ? 'open' : ''}><summary class="sel" title="${esc(resumo)}">${esc(resumo.length > 42 ? resumo.slice(0, 40) + '…' : resumo)}</summary><div class="msel-p">
+      <div class="msel-a"><button type="button" class="btn ghost sm" data-act="msel-all" data-k="${k}">Marcar todas</button><button type="button" class="btn ghost sm" data-act="msel-none" data-k="${k}">Limpar</button></div>
+      ${itens.map(([v, l]) => `<label class="msel-i"><input type="checkbox" data-fm="${k}" value="${esc(v)}" ${sel.includes(v) ? 'checked' : ''}> <span>${esc(l)}</span></label>`).join('')}</div></details></div>`;
+  }
+  function mselSet(k, vals) {
+    S.filters[k] = vals.join(',');
+    if (k === 'emp' && S.filters.estab) { const ok = vals.length ? S.filters.estab.split(',').filter(c => vals.includes(raizDe(c)) || !raizDe(c)) : S.filters.estab.split(','); S.filters.estab = ok.join(','); }
+    for (const t in TBL) TBL[t].page = 0; S.ui.msel = k; render();
   }
   function filterBar() {
     const ufs = new Set(); for (const r of xmlDocRows()) if (r.partUF) ufs.add(r.partUF); for (const R of S.efds) for (const k in R.part) if (R.part[k].UF) ufs.add(R.part[k].UF);
@@ -4777,7 +4814,8 @@ table.t tr.sel td{background:var(--accent-bg)}
       <label class="f"><span>UF do participante</span><select class="sel" data-f="uf"><option value="">Todas</option>${[...ufs].sort().map(u => `<option ${f.uf === u ? 'selected' : ''}>${u}</option>`).join('')}</select></label>
       <label class="f"><span>CFOP (início)</span><input class="inp" style="width:96px" data-f="cfop" value="${esc(f.cfop)}" placeholder="ex.: 61"></label>
       <label class="f"><span>NCM (início)</span><input class="inp" style="width:110px" data-f="ncm" value="${esc(f.ncm)}" placeholder="ex.: 0201"></label>
-      ${estabsSessao().length > 1 ? `<label class="f"><span>Estabelecimento</span><select class="sel" data-f="estab"><option value="">Todos</option>${estabsSessao().filter(Boolean).sort().map(c => `<option value="${c}" ${f.estab === c ? 'selected' : ''}>${fmtDoc(c)} · ${esc(efdNome(c))}</option>`).join('')}</select></label>` : ''}
+      ${empresasSessao().length ? msel('emp', 'Empresa (CNPJ raiz)', 'Todas as empresas', empresasSessao().map(r => [r, empresaLbl(r + '000100')])) : ''}
+      ${estabsSessao().length > 1 ? msel('estab', 'Matriz / filial', 'Todos os estabelecimentos', estabsSessao().filter(c => c && (!f.emp || f.emp.split(',').includes(raizDe(c)))).sort().map(c => [c, (raizDe(c) ? matrizFilial(c) + ' · ' + fmtDoc(c) : c) + (efdNome(c) ? ' · ' + efdNome(c) : '')])) : ''}
       ${n ? `<button class="btn ghost sm" data-act="clear-filters">${ic('x')} Limpar</button>` : ''}</div>`;
   }
 
@@ -5057,6 +5095,14 @@ table.t tr.sel td{background:var(--accent-bg)}
   }
   const raiz = (c) => String(c || '').slice(0, 8);
   const efdNome = (cnpj) => { const e = S.efds.find(x => x.header && x.header.CNPJ === cnpj); if (e) return e.header.NOME + ' · ' + e.header.UF; for (const c of S.contribs) { const x = c.estabs[cnpj]; if (x) return (x.NOME || c.header.NOME) + (x.UF ? ' · ' + x.UF : ''); } const p = planEstabs().get(cnpj); return p && p !== cnpj ? p : ''; };
+  /** Empresa (CNPJ raiz) e matriz/filial a partir do estabelecimento. */
+  const raizDe = (e) => /^\d{14}$/.test(String(e || '')) ? String(e).slice(0, 8) : '';
+  const fmtRaiz = (r) => r ? r.slice(0, 2) + '.' + r.slice(2, 5) + '.' + r.slice(5, 8) : '';
+  const nomeSemUF = (n) => String(n || '').replace(/\s·\s[A-Z]{2}$/, '');
+  function empresaLbl(e) { const r = raizDe(e); if (!r) return e ? String(e) : 'Sem estabelecimento identificado'; let nome = ''; const cs = estabsSessao().filter(c => raizDe(c) === r).sort((a, b) => (a.slice(8, 12) === '0001' ? -1 : 0) - (b.slice(8, 12) === '0001' ? -1 : 0) || a.localeCompare(b)); for (const c of cs) if ((nome = nomeSemUF(efdNome(c)))) break; return fmtRaiz(r) + (nome ? ' · ' + nome : ''); }
+  function matrizFilial(e) { const d = String(e || ''); if (!/^\d{14}$/.test(d)) return e ? 'Estabelecimento informado' : '—'; const o = d.slice(8, 12); return o === '0001' ? 'Matriz (0001)' : 'Filial ' + o; }
+  function estabLbl(L) { return L.estab ? fmtDoc(L.estab) + (efdNome(L.estab) ? ' · ' + efdNome(L.estab) : '') : L.fonte === 'Planilha' ? 'Planilha de operações' : 'Somente XML (sem EFD)'; }
+  const empresasSessao = () => [...new Set(estabsSessao().map(raizDe).filter(Boolean))].sort();
   /** Estabelecimentos informados na planilha de operações: chave (CNPJ ou nome) → nome. */
   function planEstabs() { const m = new Map(); if (S.lote) for (const l of S.lote.linhas) { if (!l.ok || !l.o) continue; const k = l.o.estabDoc || l.o.estabNome; if (k && !m.get(k)) m.set(k, l.o.estabNome || ''); } return m; }
   const estabsSessao = () => [...new Set(S.efds.map(e => e.header && e.header.CNPJ).concat(...S.contribs.map(c => Object.keys(c.estabs)), [...planEstabs().keys()]))].filter(Boolean);
@@ -6547,7 +6593,7 @@ table.t tr.sel td{background:var(--accent-bg)}
     const saldoTxt = (v) => v >= 0 ? money(v) + ' a recolher' : money(-v) + ' de crédito';
     /** Soma CBS/IBS/IS das linhas do simulador por chave. */
     const somaRT = (linhas, key, extra) => { const m = new Map(); for (const L of linhas) { if (!['debito', 'credito', 'estorno_debito', 'estorno_credito'].includes(L.papel) || (L.papel === 'debito' && L.diferido)) continue; const k = key(L); const g = m.get(k) || Object.assign({ n: 0, vendas: 0, compras: 0, base: 0, cbsD: 0, ibsD: 0, is: 0, cbsC: 0, ibsC: 0, devV: 0, devC: 0 }, extra(L)); g.n++; /* crédito: compras + devoluções de venda (entrada) · débito: vendas + devoluções de compra (saída) */ if (L.papel === 'credito' || L.papel === 'estorno_debito') { if (L.papel === 'credito') g.compras += L.vItem || 0; else { g.vendas -= L.vItem || 0; g.devV += (L.cbs || 0) + (L.ibs || 0); } g.cbsC += L.cbs || 0; g.ibsC += L.ibs || 0; } else { if (L.papel === 'debito') { g.vendas += L.vItem || 0; g.base += L.base || 0; g.is += L.vIS || 0; } else { g.compras -= L.vItem || 0; g.devC += (L.cbs || 0) + (L.ibs || 0); } g.cbsD += L.cbs || 0; g.ibsD += L.ibs || 0; } m.set(k, g); } return [...m.values()].map(g => Object.assign(g, { deb: g.cbsD + g.ibsD + g.is, cred: g.cbsC + g.ibsC, saldo: g.cbsD + g.ibsD + g.is - g.cbsC - g.ibsC })); };
-    const colsRT = (ano) => [{ k: 'n', t: 'Linhas', type: 'num' }, mny('vendas', 'Vendas'), mny('compras', 'Compras'), mny('cbsD', 'CBS débito'), mny('ibsD', 'IBS débito'), mny('is', 'Imposto Seletivo'), mny('cbsC', 'Crédito CBS'), mny('ibsC', 'Crédito IBS'), mny('saldo', 'Saldo ' + ano + ' (a recolher · credor)')];
+    const colsRT = (ano) => [{ k: 'n', t: 'Linhas', type: 'num' }, mny('vendas', 'Vendas'), mny('compras', 'Compras'), mny('cbsD', 'CBS débito'), mny('ibsD', 'IBS débito'), mny('is', 'Imposto Seletivo'), mny('cbsC', 'Crédito CBS'), mny('ibsC', 'Crédito IBS'), mny('saldo', 'Saldo ' + ano + ' (vermelho = a recolher · azul = crédito)')];
     if (id === 'executivo') {
       const SR = scenResult(sc); const Y = SR.anos.find(a => a.ano === ano); const C = scenDet(Y);
       const deb = Y.cbsT + Y.ibsT + Y.is, cred = Y.credCbs + Y.credIbs, saldo = deb - cred;
@@ -6580,7 +6626,8 @@ table.t tr.sel td{background:var(--accent-bg)}
       const r = simResult(ano); const T = r.T; const gc = colsRT(ano);
       if (T.valorValidar) R.avisos.push(money(T.valorValidar) + ' das operações estão em enquadramentos "Sem fundamento" — NECESSITA DE VALIDAÇÃO NA LEGISLAÇÃO/TABELA OFICIAL VIGENTE.');
       R.avisos.push('Valores do período importado (sem anualização). Somente CBS, IBS e Imposto Seletivo.');
-      if (id === 'empresa') R.secoes.push({ aba: 'Por estabelecimento', titulo: 'CBS, IBS e IS por estabelecimento — ' + ano, tipo: 'tabela', cols: [{ k: 'estab', t: 'Estabelecimento' }].concat(gc), rows: somaRT(r.linhas, L => L.estab || L.fonte || 'XML', L => ({ estab: L.estab ? fmtDoc(L.estab) + (efdNome(L.estab) ? ' · ' + efdNome(L.estab) : '') : L.fonte === 'Planilha' ? 'Planilha de operações' : 'Somente XML (sem EFD)' })) });
+      if (id === 'empresa') R.secoes.push({ aba: 'Por empresa (raiz)', titulo: 'CBS, IBS e IS por empresa — matriz + filiais (CNPJ raiz) — ' + ano, tipo: 'tabela', cols: [{ k: 'emp', t: 'Empresa (CNPJ raiz)' }, { k: 'nest', t: 'Estabelecimentos', type: 'num' }].concat(gc), rows: (() => { const ke = L => raizDe(L.estab) || L.estab || L.fonte || 'XML'; const est = new Map(); for (const L of r.linhas) { const k = ke(L); if (!est.has(k)) est.set(k, new Set()); if (L.estab) est.get(k).add(L.estab); } return somaRT(r.linhas, ke, L => ({ emp: empresaLbl(L.estab), nest: (est.get(ke(L)) || new Set()).size })); })() });
+      if (id === 'empresa') R.secoes.push({ aba: 'Por estabelecimento', titulo: 'CBS, IBS e IS por estabelecimento — ' + ano, tipo: 'tabela', cols: [{ k: 'emp', t: 'Empresa (CNPJ raiz)' }, { k: 'mf', t: 'Matriz / filial' }, { k: 'estab', t: 'Estabelecimento' }].concat(gc), rows: somaRT(r.linhas, L => L.estab || L.fonte || 'XML', L => ({ emp: empresaLbl(L.estab), mf: matrizFilial(L.estab), estab: estabLbl(L), _o: String(L.estab || '~') })).sort((a, b) => a._o.localeCompare(b._o)) });
       if (id === 'operacao') R.secoes.push({ aba: 'Por natureza e CFOP', titulo: 'CBS, IBS e IS por natureza e CFOP — ' + ano, tipo: 'tabela', cols: [{ k: 'nat', t: 'Natureza' }, { k: 'cfop', t: 'CFOP' }].concat(gc), rows: somaRT(r.linhas, L => L.nat + '|' + L.cfop, L => ({ nat: RTS_RULES.NAT[L.nat] || L.nat, cfop: L.cfop })).sort((a, b) => b.vendas + b.compras - a.vendas - a.compras) });
       if (id === 'comparativo') {
         const sdo = T.cbsLiq + T.ibsLiq + (T.isDeb || 0);
@@ -6671,7 +6718,7 @@ table.t tr.sel td{background:var(--accent-bg)}
     try { const r = RTS_NCM.consultar(n); const h = r && r.hierarquia && r.hierarquia[0]; if (h) return 'Cap. ' + h.fmt + ' — ' + String(h.descricao).replace(/[.;]\s*$/, '').slice(0, 60); } catch (e) {}
     return 'Capítulo ' + n.slice(0, 2);
   }
-  function anexarBase(R, id, ano) {
+  function anexarBase(R, id, ano) { const empCache = {};
     const P = ['Saldo (vermelho = a recolher · azul = crédito)'];
     if (id === 'creditos') {
       const r = credResult(ano); const m = new Map();
@@ -6686,27 +6733,27 @@ table.t tr.sel td{background:var(--accent-bg)}
       const mes = (L.data || '').slice(0, 7); const st = CLF.situacao(L);
       const k = [mes, L.estab, L.dir, L.papel, L.diferido ? 1 : 0, L.nat, L.cfop, L.ncm, L.regraId, L.cClassTrib, L.cst, st.k, L.partUF, L.grupo || ''].join('|');
       let g = m.get(k);
-      if (!g) { g = { mes, estab: L.estab ? fmtDoc(L.estab) + (efdNome(L.estab) ? ' · ' + efdNome(L.estab) : '') : L.fonte === 'Planilha' ? 'Planilha de operações' : 'Somente XML', sent: L.dir === 'S' ? 'Saída' : 'Entrada', apur: L.diferido ? 'Diferido' : (PL[L.papel] || L.papel), nat: RTS_RULES.NAT[L.nat] || L.nat || '', cfop: L.cfop || '', ncm: L.ncm || '', grupo: L.grupo || grupoProduto(L.ncm || (L.nbs ? 'NBS' : '')), desc: L.descricao || '', regra: L.regra || '', cct: L.cClassTrib || '', cst: L.cst || '', sit: st.lbl, uf: L.partUF || '', red: L.pRed || 0, n: 0, valor: 0, base: 0, cbsD: 0, ibsD: 0, is: 0, cbsC: 0, ibsC: 0 }; m.set(k, g); }
+      if (!g) { g = { mes, emp: L.estab ? (empCache[L.estab] || (empCache[L.estab] = empresaLbl(L.estab))) : L.fonte === 'Planilha' ? 'Planilha de operações' : 'Somente XML', mf: matrizFilial(L.estab), estab: L.estab ? fmtDoc(L.estab) + (efdNome(L.estab) ? ' · ' + efdNome(L.estab) : '') : L.fonte === 'Planilha' ? 'Planilha de operações' : 'Somente XML', sent: L.dir === 'S' ? 'Saída' : 'Entrada', apur: L.diferido ? 'Diferido' : (PL[L.papel] || L.papel), nat: RTS_RULES.NAT[L.nat] || L.nat || '', cfop: L.cfop || '', ncm: L.ncm || '', grupo: L.grupo || grupoProduto(L.ncm || (L.nbs ? 'NBS' : '')), desc: L.descricao || '', regra: L.regra || '', cct: L.cClassTrib || '', cst: L.cst || '', sit: st.lbl, uf: L.partUF || '', red: L.pRed || 0, n: 0, valor: 0, base: 0, cbsD: 0, ibsD: 0, is: 0, cbsC: 0, ibsC: 0 }; m.set(k, g); }
       g.n++; g.valor += L.vItem || 0;
       // crédito: compras + devoluções de venda (entrada) · débito: vendas + devoluções de compra (saída)
       if (L.papel === 'credito' || L.papel === 'estorno_debito') { g.cbsC += L.cbs || 0; g.ibsC += L.ibs || 0; }
       else if ((L.papel === 'debito' || L.papel === 'estorno_credito') && !L.diferido) { if (L.papel === 'debito') { g.base += L.base || 0; g.is += L.vIS || 0; } g.cbsD += L.cbs || 0; g.ibsD += L.ibs || 0; }
     }
     const rows = [...m.values()].map(g => Object.assign(g, { saldo: g.cbsD + g.ibsD + g.is - g.cbsC - g.ibsC }));
-    R.base = { cols: [{ k: 'mes', t: 'Mês' }, { k: 'estab', t: 'Estabelecimento' }, { k: 'sent', t: 'Sentido' }, { k: 'apur', t: 'Apuração' }, { k: 'nat', t: 'Natureza' }, { k: 'cfop', t: 'CFOP' }, { k: 'ncm', t: 'NCM/NBS' }, { k: 'grupo', t: 'Grupo do produto' }, { k: 'desc', t: 'Descrição' }, { k: 'regra', t: 'Regra' }, { k: 'cst', t: 'CST' }, { k: 'cct', t: 'cClassTrib' }, { k: 'red', t: 'Redução %', type: 'num' }, { k: 'sit', t: 'Situação do enquadramento' }, { k: 'uf', t: 'UF do participante' }, { k: 'n', t: 'Linhas', type: 'num' }, mny('valor', 'Valor das operações'), mny('base', 'Base de cálculo'), mny('cbsD', 'CBS débito'), mny('ibsD', 'IBS débito'), mny('is', 'Imposto Seletivo'), mny('cbsC', 'Crédito CBS'), mny('ibsC', 'Crédito IBS'), mny('saldo', P[0])], rows };
+    R.base = { cols: [{ k: 'mes', t: 'Mês' }, { k: 'emp', t: 'Empresa (CNPJ raiz)' }, { k: 'mf', t: 'Matriz / filial' }, { k: 'estab', t: 'Estabelecimento' }, { k: 'sent', t: 'Sentido' }, { k: 'apur', t: 'Apuração' }, { k: 'nat', t: 'Natureza' }, { k: 'cfop', t: 'CFOP' }, { k: 'ncm', t: 'NCM/NBS' }, { k: 'grupo', t: 'Grupo do produto' }, { k: 'desc', t: 'Descrição' }, { k: 'regra', t: 'Regra' }, { k: 'cst', t: 'CST' }, { k: 'cct', t: 'cClassTrib' }, { k: 'red', t: 'Redução %', type: 'num' }, { k: 'sit', t: 'Situação do enquadramento' }, { k: 'uf', t: 'UF do participante' }, { k: 'n', t: 'Linhas', type: 'num' }, mny('valor', 'Valor das operações'), mny('base', 'Base de cálculo'), mny('cbsD', 'CBS débito'), mny('ibsD', 'IBS débito'), mny('is', 'Imposto Seletivo'), mny('cbsC', 'Crédito CBS'), mny('ibsC', 'Crédito IBS'), mny('saldo', P[0])], rows };
     const V = ['CBS débito', 'IBS débito', 'Imposto Seletivo', 'Crédito CBS', 'Crédito IBS', P[0]];
     const piv = {
       natureza: { titulo: 'Dinâmica — Natureza', linha: 'Natureza', valores: V, ordenarPorValor: true },
       mes: { titulo: 'Dinâmica — Mês', linha: 'Mês', valores: V },
       ncm: { titulo: 'Dinâmica — NCM', linha: 'NCM/NBS', valores: [P[0], 'CBS débito', 'IBS débito', 'Crédito CBS', 'Crédito IBS'], ordenarPorValor: true },
-      estab: { titulo: 'Dinâmica — Estabelecimento', linha: 'Estabelecimento', valores: V, ordenarPorValor: true },
+      estab: { titulo: 'Dinâmica — Empresa e filiais', linha: 'Empresa (CNPJ raiz)', linha2: 'Estabelecimento', rotuloLinha: 'Empresa / estabelecimento', valores: V, ordenarPorValor: true },
       cct: { titulo: 'Dinâmica — cClassTrib', linha: 'cClassTrib', valores: V, ordenarPorValor: true },
       sit: { titulo: 'Dinâmica — Situação', linha: 'Situação do enquadramento', valores: ['Valor das operações', 'CBS débito', 'IBS débito', 'Crédito CBS', 'Crédito IBS', P[0]] },
       grupo: { titulo: 'Dinâmica — Grupo', linha: 'Grupo do produto', valores: V, ordenarPorValor: true },
       uf: { titulo: 'Dinâmica — UF', linha: 'UF do participante', valores: V, ordenarPorValor: true },
       regra: { titulo: 'Dinâmica — Regra', linha: 'Regra', valores: V, ordenarPorValor: true }
     };
-    const escolha = { executivo: ['natureza', 'grupo', 'mes', 'ncm', 'estab'], empresa: ['estab', 'mes', 'natureza'], operacao: ['natureza', 'grupo', 'regra', 'mes'], comparativo: ['natureza', 'grupo', 'mes', 'ncm', 'cct'], mensal: ['mes', 'natureza'], cclasstrib: ['cct', 'regra', 'sit'], beneficios: ['regra', 'grupo', 'cct'], uf: ['uf', 'mes'], parceiros: ['uf', 'natureza'], ncm: ['grupo', 'ncm', 'sit', 'cct'] }[id] || ['natureza'];
+    const escolha = { executivo: ['natureza', 'grupo', 'mes', 'ncm', 'estab'], empresa: ['estab', 'mes', 'natureza'], operacao: ['natureza', 'grupo', 'regra', 'mes', 'estab'], comparativo: ['natureza', 'grupo', 'mes', 'ncm', 'cct', 'estab'], mensal: ['mes', 'natureza', 'estab'], cclasstrib: ['cct', 'regra', 'sit', 'estab'], beneficios: ['regra', 'grupo', 'cct', 'estab'], uf: ['uf', 'mes', 'estab'], parceiros: ['uf', 'natureza', 'estab'], ncm: ['grupo', 'ncm', 'sit', 'cct', 'estab'] }[id] || ['natureza', 'estab'];
     R.pivots = escolha.map(k => piv[k]);
     if (id === 'executivo') R.grafico = { titulo: 'Projeção de CBS, IBS e IS — 2026 a 2033 (anualizada)', secao: R.secoes.find(x => /^Projeção por exercício/.test(x.titulo)).titulo, cat: 'ano', series: [{ k: 'cbsT', cor: '0E3A47' }, { k: 'ibsT', cor: '1A9E8F' }, { k: 'is', cor: 'C77700' }, { k: 'cr', cor: '9FB4C2' }, { k: 'sd', cor: 'D1495B' }] };
     if (id === 'comparativo') R.grafico = { titulo: 'CBS, IBS e IS por ano — período importado', secao: 'CBS, IBS e IS por ano (período importado)', cat: 'ano', series: [{ k: 'cbsDeb', cor: '0E3A47' }, { k: 'ibsDeb', cor: '1A9E8F' }, { k: 'isDeb', cor: 'C77700' }, { k: 'cr', cor: '9FB4C2' }, { k: 'sd', cor: 'D1495B' }] };
@@ -6753,7 +6800,9 @@ table.t tr.sel td{background:var(--accent-bg)}
       case 'open-project': location.hash = '#projetos'; break;
       case 'export-config': saveFile('configuracoes-' + slug(S.config.projeto) + '.json', JSON.stringify({ format: 'REFORMA-TRIBUTARIA-SIMULATOR/CONFIG', versao: 1, config: S.config }, null, 2)); break;
       case 'load-sample': loadSample(); break;
-      case 'clear-filters': S.filters = { ini: '', fim: '', dir: '', uf: '', cfop: '', ncm: '', estab: '' }; render(); break;
+      case 'msel-all': { const box = el.closest('details'); mselSet(el.dataset.k, [...box.querySelectorAll('input[data-fm]')].map(x => x.value)); break; }
+      case 'msel-none': mselSet(el.dataset.k, []); break;
+      case 'clear-filters': S.filters = { ini: '', fim: '', dir: '', uf: '', cfop: '', ncm: '', emp: '', estab: '' }; render(); break;
       case 'dash-src': S.ui.dashSrc = el.dataset.v; render(); break;
       case 'cons-src': S.ui.consSrc = el.dataset.v; render(); break;
       case 'cons-dim': { const v = el.dataset.v; const i = S.ui.consDims.indexOf(v); if (i >= 0) { if (S.ui.consDims.length > 1) S.ui.consDims.splice(i, 1); } else S.ui.consDims.push(v); render(); break; }
@@ -6828,6 +6877,8 @@ table.t tr.sel td{background:var(--accent-bg)}
     }
   }
   function bindGlobal() {
+    document.addEventListener('toggle', e => { const d = e.target; if (d && d.dataset && d.dataset.msel) { if (d.open) { S.ui.msel = d.dataset.msel; document.querySelectorAll('details.msel[open]').forEach(x => { if (x !== d) x.open = false; }); } else if (S.ui.msel === d.dataset.msel) S.ui.msel = null; } }, true);
+    document.addEventListener('click', e => { if (!e.target.closest('details.msel')) document.querySelectorAll('details.msel[open]').forEach(x => { x.open = false; }); });
     document.addEventListener('click', e => {
       const t = e.target;
       const a = t.closest('[data-act]'); if (a && a.tagName !== 'SELECT') { e.preventDefault(); act(a.dataset.act, a); return; }
@@ -6846,6 +6897,7 @@ table.t tr.sel td{background:var(--accent-bg)}
     });
     document.addEventListener('change', e => {
       const t = e.target;
+      if (t.dataset.fm) { const box = t.closest('details'); mselSet(t.dataset.fm, [...box.querySelectorAll('input[data-fm]:checked')].map(x => x.value)); return; }
       if (t.dataset.f && (t.tagName === 'SELECT' || t.type === 'date')) { S.filters[t.dataset.f] = t.value; for (const k in TBL) TBL[k].page = 0; render(); }
       if (t.dataset.tblPs) { TBL[t.dataset.tblPs].pageSize = +t.value; TBL[t.dataset.tblPs].page = 0; refreshTable(t.dataset.tblPs); }
       if (t.dataset.act === 'cen-ativo') { S.cenarioAtivo = t.value; S.dirty = true; render(); }
@@ -6957,5 +7009,5 @@ table.t tr.sel td{background:var(--accent-bg)}
 </script>
 <script>/* PWA: só quando servido por http(s) (GitHub Pages); no arquivo local não faz nada */
 (function(){if(!('serviceWorker' in navigator)||location.protocol==='file:')return;navigator.serviceWorker.register('sw.js').catch(function(){});
-var V='2026.11.18-1432';fetch('versao.json?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){if(j&&j.versao&&j.versao!==V){var b=document.createElement('div');b.style.cssText='position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:99999;background:#0b1a24;color:#e6f1f5;border:1px solid #2bc4ae;border-radius:10px;padding:10px 14px;font:13px system-ui;box-shadow:0 8px 30px rgba(0,0,0,.35)';b.innerHTML='Nova versão disponível ('+j.versao+'). <a href="#" style="color:#2bc4ae;font-weight:600;margin-left:8px">Atualizar</a>';b.querySelector('a').onclick=function(e){e.preventDefault();try{window.RTS_APP&&RTS_APP.salvarAgora&&RTS_APP.salvarAgora()}catch(_){}(window.caches?caches.keys().then(function(k){return Promise.all(k.map(function(x){return caches.delete(x)}))}):Promise.resolve()).finally(function(){location.reload()})};document.body.appendChild(b)}}).catch(function(){});})();</script></body>
+var V='2026.11.18-1514';fetch('versao.json?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){if(j&&j.versao&&j.versao!==V){var b=document.createElement('div');b.style.cssText='position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:99999;background:#0b1a24;color:#e6f1f5;border:1px solid #2bc4ae;border-radius:10px;padding:10px 14px;font:13px system-ui;box-shadow:0 8px 30px rgba(0,0,0,.35)';b.innerHTML='Nova versão disponível ('+j.versao+'). <a href="#" style="color:#2bc4ae;font-weight:600;margin-left:8px">Atualizar</a>';b.querySelector('a').onclick=function(e){e.preventDefault();try{window.RTS_APP&&RTS_APP.salvarAgora&&RTS_APP.salvarAgora()}catch(_){}(window.caches?caches.keys().then(function(k){return Promise.all(k.map(function(x){return caches.delete(x)}))}):Promise.resolve()).finally(function(){location.reload()})};document.body.appendChild(b)}}).catch(function(){});})();</script></body>
 </html>

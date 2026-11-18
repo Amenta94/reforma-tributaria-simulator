@@ -2811,9 +2811,9 @@ table.t tr.sel td{background:var(--accent-bg)}
     for (const r of rows) {
       if (ved && (ved[r.id] || ved[r.docId + '|' + r.ncm + '|' + r.vItem])) { out.push(r); continue; }
       const e = r.dir === 'E';
-      const k = [r.ncm, r.nbs, r.tipo, r.tipoDoc, r.natureza, r.cfop, r.dir, r.data, e ? r.partDoc : '', r.destinacao, r.contraparte, r.tipoFornecedor, r.semCreditoAtual ? 1 : 0, r.fonte === 'C190 (sem item)' ? 1 : 0].join('|');
+      const k = [r.ncm, r.nbs, r.tipo, r.tipoDoc, r.natureza, r.cfop, r.dir, r.data, e ? r.partDoc : '', r.destinacao, r.contraparte, r.tipoFornecedor, r.semCreditoAtual ? 1 : 0, r.fonte === 'C190 (sem item)' ? 1 : 0, r.estab || '', r.grupo || ''].join('|');
       let g = m.get(k);
-      if (!g) { g = { ncm: r.ncm, nbs: r.nbs, tipo: r.tipo, tipoDoc: r.tipoDoc, natureza: r.natureza, cfop: r.cfop, dir: r.dir, data: r.data, partDoc: e ? r.partDoc : '', destinacao: r.destinacao, contraparte: r.contraparte, tipoFornecedor: r.tipoFornecedor, semCreditoAtual: r.semCreditoAtual, fonte: r.fonte, docId: 'grupo', _n: 0 }; for (const f of SOMA) g[f] = 0; m.set(k, g); out.push(g); }
+      if (!g) { g = { ncm: r.ncm, nbs: r.nbs, tipo: r.tipo, tipoDoc: r.tipoDoc, natureza: r.natureza, cfop: r.cfop, dir: r.dir, data: r.data, partDoc: e ? r.partDoc : '', destinacao: r.destinacao, contraparte: r.contraparte, tipoFornecedor: r.tipoFornecedor, semCreditoAtual: r.semCreditoAtual, fonte: r.fonte, estab: r.estab, estabNome: r.estabNome, grupo: r.grupo, docId: 'grupo', _n: 0 }; for (const f of SOMA) g[f] = 0; m.set(k, g); out.push(g); }
       g._n++; for (const f of SOMA) if (r[f]) g[f] += r[f];
     }
     return out;
@@ -3849,10 +3849,13 @@ table.t tr.sel td{background:var(--accent-bg)}
   /** Colunas do modelo: k (campo), t (cabeçalho), tipo, obrig, ajuda, lista */
   const COLS = [
     { k: 'nome', t: 'Identificação', tipo: 'texto', w: 30, ajuda: 'Opcional. Nome livre da operação (ex.: Venda carne MG).' },
+    { k: 'estabDoc', t: 'CNPJ da nossa empresa', tipo: 'doc', w: 21, ajuda: 'Opcional. CNPJ do estabelecimento da empresa (matriz ou filial) que faz a operação. Separa os resultados e relatórios por estabelecimento.' },
+    { k: 'estabNome', t: 'Nome do estabelecimento', tipo: 'texto', w: 24, ajuda: 'Opcional. Nome curto da filial (ex.: Frigorífico SP, Fábrica de rações RS). Aparece nos relatórios ao lado do CNPJ.' },
     { k: 'tipo', t: 'Tipo de operação', tipo: 'lista', obrig: true, w: 26, ajuda: 'Código da aba Listas (ex.: venda, compra, compra_uso_consumo, transferencia).' },
     { k: 'ufOrig', t: 'UF origem', tipo: 'uf', obrig: true, w: 10, ajuda: 'Sigla da UF (EX para exterior).' },
     { k: 'ufDest', t: 'UF destino', tipo: 'uf', obrig: true, w: 10, ajuda: 'Sigla da UF (EX para exterior).' },
     { k: 'ncm', t: 'NCM', tipo: 'ncm', obrig: true, w: 13, ajuda: '8 dígitos, com ou sem pontos (coluna em formato texto: o zero à esquerda é mantido).' },
+    { k: 'grupo', t: 'Grupo do produto', tipo: 'texto', w: 24, ajuda: 'Opcional. Grupo gerencial do produto (ex.: Carne bovina, Embutidos). Em branco: o app define pelo NCM.' },
     { k: 'valor', t: 'Valor do item (R$)', tipo: 'moeda', obrig: true, w: 16, ajuda: 'Valor da mercadoria, sem IPI e sem ICMS-ST.' },
     { k: 'desconto', t: 'Desconto (R$)', tipo: 'moeda', w: 13 },
     { k: 'frete', t: 'Frete (R$)', tipo: 'moeda', w: 12 },
@@ -3898,8 +3901,8 @@ table.t tr.sel td{background:var(--accent-bg)}
     const REP = root.RTS_REP; const L = listas(); const N = 500;
     const head = COLS.map(c => ({ v: c.t + (c.obrig ? ' *' : ''), s: 1 }));
     const rows = [head];
-    for (const e of EXEMPLOS) rows.push(COLS.map(c => { const v = e[c.k]; if (v === undefined || v === '') return c.k === 'ncm' ? { v: '', s: 8 } : (c.k === 'partDoc' ? { v: '', s: 8 } : null); if (c.tipo === 'moeda') return { v: v, n: true, s: 2 }; if (c.tipo === 'pct') return { v: v, n: true, s: 7 }; if (c.k === 'ncm' || c.k === 'partDoc') return { v: String(v), s: 8 }; return { v: String(v) }; }));
-    for (let i = rows.length; i <= N; i++) rows.push(COLS.map(c => c.k === 'ncm' || c.k === 'partDoc' ? { v: '', s: 8 } : null));
+    for (const e of EXEMPLOS) rows.push(COLS.map(c => { const v = e[c.k]; if (v === undefined || v === '') return c.k === 'ncm' ? { v: '', s: 8 } : (c.tipo === 'doc' ? { v: '', s: 8 } : null); if (c.tipo === 'moeda') return { v: v, n: true, s: 2 }; if (c.tipo === 'pct') return { v: v, n: true, s: 7 }; if (c.k === 'ncm' || c.k === 'partDoc') return { v: String(v), s: 8 }; return { v: String(v) }; }));
+    for (let i = rows.length; i <= N; i++) rows.push(COLS.map(c => c.k === 'ncm' || c.tipo === 'doc' ? { v: '', s: 8 } : null));
     const col = (k) => { const i = COLS.findIndex(c => c.k === k); let s = '', n = i + 1; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
     const val = (k, list, title) => ({ sqref: `${col(k)}2:${col(k)}${N + 1}`, list, title, prompt: (COLS.find(c => c.k === k) || {}).ajuda || '' });
     const validations = [val('tipo', L.tipo, 'Tipo de operação'), val('ufOrig', UFS, 'UF origem'), val('ufDest', UFS, 'UF destino'), val('regimePC', L.regimePC, 'PIS/COFINS'), val('contraparte', L.contraparte, 'Contraparte'), val('destinacao', L.destinacao, 'Destinação'), val('cenario', L.cenario, 'Cenário de preço'), val('periodo', L.periodo, 'Período do valor'), val('ano', ['2026', '2027', '2028', '2029', '2030', '2031', '2032', '2033'], 'Ano')];
@@ -3926,7 +3929,7 @@ table.t tr.sel td{background:var(--accent-bg)}
 
   /* ---------------- leitura ---------------- */
   const norm = (s) => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\*/g, '').replace(/\s+/g, ' ').trim();
-  const SIN = { nome: ['identificacao', 'nome', 'descricao', 'operacao (nome)'], tipo: ['tipo de operacao', 'tipo', 'operacao'], ufOrig: ['uf origem', 'uf de origem', 'origem'], ufDest: ['uf destino', 'uf de destino', 'destino'], ncm: ['ncm'], valor: ['valor do item (r$)', 'valor do item', 'valor', 'valor (r$)'], desconto: ['desconto (r$)', 'desconto'], frete: ['frete (r$)', 'frete'], custo: ['custo do produto (r$)', 'custo do produto', 'custo'], aliqICMS: ['aliq. icms atual (%)', 'aliquota icms', 'aliq icms', 'icms (%)', 'aliq. icms (%)'], redBC: ['reducao bc icms (%)', 'reducao bc', 'reducao da base (%)'], valorST: ['icms-st (r$)', 'icms st', 'icms-st', 'valor st'], aliqIPI: ['aliq. ipi (%)', 'aliquota ipi', 'ipi (%)'], regimePC: ['pis/cofins atual', 'pis/cofins', 'regime pis/cofins'], contraparte: ['contraparte', 'destinatario'], destinacao: ['destinacao'], cenario: ['cenario de preco', 'cenario'], periodo: ['periodo do valor', 'periodo'], partDoc: ['cnpj/cpf da contraparte', 'cnpj/cpf', 'cnpj', 'cpf', 'cnpj/cpf do fornecedor', 'documento da contraparte'], cfop: ['cfop (opcional)', 'cfop'], ano: ['ano (opcional)', 'ano'] };
+  const SIN = { nome: ['identificacao', 'nome', 'descricao', 'operacao (nome)'], estabDoc: ['cnpj da nossa empresa', 'cnpj do estabelecimento', 'cnpj da empresa', 'cnpj do emitente'], estabNome: ['nome do estabelecimento', 'estabelecimento', 'filial', 'empresa'], grupo: ['grupo do produto', 'grupo de produto', 'grupo'], tipo: ['tipo de operacao', 'tipo', 'operacao'], ufOrig: ['uf origem', 'uf de origem', 'origem'], ufDest: ['uf destino', 'uf de destino', 'destino'], ncm: ['ncm'], valor: ['valor do item (r$)', 'valor do item', 'valor', 'valor (r$)'], desconto: ['desconto (r$)', 'desconto'], frete: ['frete (r$)', 'frete'], custo: ['custo do produto (r$)', 'custo do produto', 'custo'], aliqICMS: ['aliq. icms atual (%)', 'aliquota icms', 'aliq icms', 'icms (%)', 'aliq. icms (%)'], redBC: ['reducao bc icms (%)', 'reducao bc', 'reducao da base (%)'], valorST: ['icms-st (r$)', 'icms st', 'icms-st', 'valor st'], aliqIPI: ['aliq. ipi (%)', 'aliquota ipi', 'ipi (%)'], regimePC: ['pis/cofins atual', 'pis/cofins', 'regime pis/cofins'], contraparte: ['contraparte', 'destinatario'], destinacao: ['destinacao'], cenario: ['cenario de preco', 'cenario'], periodo: ['periodo do valor', 'periodo'], partDoc: ['cnpj/cpf da contraparte', 'cnpj/cpf', 'cnpj', 'cpf', 'cnpj/cpf do fornecedor', 'documento da contraparte'], cfop: ['cfop (opcional)', 'cfop'], ano: ['ano (opcional)', 'ano'] };
   function mapear(header) {
     const m = {}; const h = header.map(norm);
     for (const [k, syn] of Object.entries(SIN)) { const i = h.findIndex(x => syn.includes(x)); if (i >= 0) m[k] = i; }
@@ -3961,6 +3964,8 @@ table.t tr.sel td{background:var(--accent-bg)}
     o.contraparte = lk(CONTRA, 'contraparte', 'Contraparte'); o.destinacao = lk(DESTIN, 'destinacao', 'Destinação');
     const cn = g('cenario'); o.cenario = cn ? (chaveDe(CENARIO, cn) || (avisos.push('Cenário "' + cn + '" não reconhecido: preços mantidos.'), 'precos')) : 'precos';
     const pe = g('periodo'); o.periodo = pe ? (chaveDe(PERIODO, pe) || (avisos.push('Período "' + pe + '" não reconhecido: considerado mês.'), 'mes')) : 'mes';
+    const ed = g('estabDoc').replace(/\D/g, ''); o.estabDoc = ed.length === 13 ? '0' + ed : ed; o.estabNome = g('estabNome'); o.grupo = g('grupo');
+    if (o.estabDoc) { const R0 = root.RTS; if (o.estabDoc.length !== 14 || (R0 && !R0.cnpjValido(o.estabDoc))) avisos.push('CNPJ da nossa empresa "' + g('estabDoc') + '" com dígito verificador ou tamanho inválido.'); }
     const pd = g('partDoc').replace(/\D/g, ''); o.partDoc = pd;
     if (pd) { const R = root.RTS; if (pd.length === 14 ? !R.cnpjValido(pd) : pd.length === 11 ? !R.cpfValido(pd) : true) avisos.push('CNPJ/CPF "' + g('partDoc') + '" com dígito verificador ou tamanho inválido.'); }
     if (o.contraparte === 'produtor_nao_contribuinte' && pd.length === 14) avisos.push('Contraparte produtor rural não contribuinte com CNPJ: confira o enquadramento (art. 164).');
@@ -4035,7 +4040,7 @@ table.t tr.sel td{background:var(--accent-bg)}
       const nome = o.nome || ('Linha ' + o.linha); const part = o.partDoc || ('PL-' + o.linha);
       out.push({ fonte: 'Planilha', docId: 'PL' + o.linha, chave: '', linhaPlanilha: o.linha, data: '2026-01-15', mes: '2026-01', dir: row.dir, status: 'autorizada', numero: 'L' + o.linha, serie: '', modelo: 'PL',
         partDoc: part, partNome: nome, partUF: row.dir === 'S' ? o.ufDest : o.ufOrig, ufOrig: o.ufOrig, ufDest: o.ufDest, emitDoc: '', destDoc: '',
-        tipo: 'mercadoria', tipoOp: o.tipo, periodo: o.periodo, contraparte: o.contraparte, destinacao: o.destinacao, tipoFornecedor: o.contraparte === 'produtor_nao_contribuinte' ? 'produtor_nc' : (o.partDoc ? '' : 'regular'), semCreditoAtual: row.semCreditoAtual,
+        estab: o.estabDoc || o.estabNome || undefined, estabNome: o.estabNome || '', grupo: o.grupo || '', tipo: 'mercadoria', tipoOp: o.tipo, periodo: o.periodo, contraparte: o.contraparte, destinacao: o.destinacao, tipoFornecedor: o.contraparte === 'produtor_nao_contribuinte' ? 'produtor_nc' : (o.partDoc ? '' : 'regular'), semCreditoAtual: row.semCreditoAtual,
         ncm: o.ncm, cfop, cst: '', produto: o.ncm, descricao: nome, qtd: 1, unid: 'UN',
         vItem: k(row.vItem), vDesc: k(row.vDesc), vFrete: k(row.vFrete), vOutro: 0, vBC: k(row.vBC), vICMS: k(row.vICMS), vST: k(row.vST), vIPI: k(row.vIPI), vPIS: k(row.vPIS), vCOFINS: k(row.vCOFINS), vIBS: 0, vCBS: 0, cClassTrib: '', custo: k(o.custo) });
     }
@@ -4556,7 +4561,8 @@ table.t tr.sel td{background:var(--accent-bg)}
     if (root.RTS_LOTE) {
       const LT = root.RTS_LOTE; const RRl = root.RTS_RULES;
       const mod = LT.modelo();
-      await T('Lote', 'Modelo .xlsx gerado com as abas Operações, Listas e Instruções', async () => { const sh = await root.RTS_CLASS.readXlsx(mod); return eq(sh.map(x => x.nome).join('|'), 'Operações|Listas|Instruções') && eq(sh[0].rows[0][1], 'Tipo de operação *'); });
+      await T('Lote', 'Planilha: CNPJ da nossa empresa, nome do estabelecimento e grupo do produto chegam à operação', async () => { const csv = 'Tipo de operação;UF origem;UF destino;NCM;Valor do item (R$);CNPJ da nossa empresa;Nome do estabelecimento;Grupo do produto\nvenda;SP;SP;0201.30.00;1000;04.252.011/0001-10;Frigorífico SP;Dianteiro\nvenda;SP;SP;0201.30.00;500;;;\n'; const L = await root.RTS_LOTE.ler({ name: 't.csv', bytes: new TextEncoder().encode(csv) }); const o = root.RTS_LOTE.paraOperacoes(L.linhas); return eq(o[0].estab, '04252011000110') && eq(o[0].estabNome, 'Frigorífico SP') && eq(o[0].grupo, 'Dianteiro') && eq(o[1].estab, undefined) && eq(o[1].grupo, ''); });
+      await T('Lote', 'Modelo .xlsx gerado com as abas Operações, Listas e Instruções', async () => { const sh = await root.RTS_CLASS.readXlsx(mod); return eq(sh.map(x => x.nome).join('|'), 'Operações|Listas|Instruções') && eq(sh[0].rows[0].includes('Tipo de operação *'), true) && eq(sh[0].rows[0].includes('CNPJ da nossa empresa'), true) && eq(sh[0].rows[0].includes('Grupo do produto'), true); });
       const lido = await LT.ler({ name: 'modelo.xlsx', bytes: mod });
       await T('Lote', 'Modelo reimportado: 5 exemplos válidos', () => eq(lido.linhas.length, 5) && eq(lido.linhas.every(l => l.ok), true) && eq(lido.linhas[0].o.ncm, '02013000') && eq(lido.linhas[0].o.valor, 5000000));
       await T('Lote', 'CSV com valores pt-BR, nomes por extenso e erros por linha', async () => {
@@ -5050,8 +5056,10 @@ table.t tr.sel td{background:var(--accent-bg)}
     </div></div>`;
   }
   const raiz = (c) => String(c || '').slice(0, 8);
-  const efdNome = (cnpj) => { const e = S.efds.find(x => x.header && x.header.CNPJ === cnpj); if (e) return e.header.NOME + ' · ' + e.header.UF; for (const c of S.contribs) { const x = c.estabs[cnpj]; if (x) return (x.NOME || c.header.NOME) + (x.UF ? ' · ' + x.UF : ''); } return ''; };
-  const estabsSessao = () => [...new Set(S.efds.map(e => e.header && e.header.CNPJ).concat(...S.contribs.map(c => Object.keys(c.estabs))))].filter(Boolean);
+  const efdNome = (cnpj) => { const e = S.efds.find(x => x.header && x.header.CNPJ === cnpj); if (e) return e.header.NOME + ' · ' + e.header.UF; for (const c of S.contribs) { const x = c.estabs[cnpj]; if (x) return (x.NOME || c.header.NOME) + (x.UF ? ' · ' + x.UF : ''); } const p = planEstabs().get(cnpj); return p && p !== cnpj ? p : ''; };
+  /** Estabelecimentos informados na planilha de operações: chave (CNPJ ou nome) → nome. */
+  function planEstabs() { const m = new Map(); if (S.lote) for (const l of S.lote.linhas) { if (!l.ok || !l.o) continue; const k = l.o.estabDoc || l.o.estabNome; if (k && !m.get(k)) m.set(k, l.o.estabNome || ''); } return m; }
+  const estabsSessao = () => [...new Set(S.efds.map(e => e.header && e.header.CNPJ).concat(...S.contribs.map(c => Object.keys(c.estabs)), [...planEstabs().keys()]))].filter(Boolean);
   /** Mapa de cobertura: estabelecimentos × meses (detecta meses faltantes e raízes diferentes). */
   function efdMapa() {
     const hs = S.efds.filter(e => e.header); if (!hs.length) return '';
@@ -5504,14 +5512,14 @@ table.t tr.sel td{background:var(--accent-bg)}
       const cp = CLF.contraparte(r); const k = r.ncm + '|' + r.cfop + '|' + r.dir + '|' + cp; let x = g.get(k);
       if (!x) { x = { ncm: r.ncm, cfop: r.cfop, dir: r.dir, cp, descricao: r.descricao || '', vItem: 0, vICMS: 0, n: 0, data: r.data, chaves: new Set(), cct: new Set() }; g.set(k, x); }
       x.vItem += r.vItem || 0; x.vICMS += r.vICMS || 0; x.n++; if (r.data && (!x.data || r.data > x.data)) x.data = r.data; if (r.chave) x.chaves.add(r.chave);
-      if (r.cClassTrib) x.cct.add(r.cClassTrib);
+      if (r.cClassTrib) x.cct.add(r.cClassTrib); if (r.grupo && !x.grupo) x.grupo = r.grupo;
       else if (r.chave && xByChave.has(r.chave)) for (const it of xByChave.get(r.chave)) if (it.NCM === r.ncm && it.cClassTrib) x.cct.add(it.cClassTrib);
     }
     const out = [];
     for (const x of g.values()) {
       const c = classify({ ncm: x.ncm, cfop: x.cfop, sentido: x.dir, destinatario: x.cp, destinacao: '*', data: x.data });
       const xmlC = [...x.cct].join(' ');
-      const nm = RTS_NCM.consultar(x.ncm); out.push({ ncm: x.ncm, ncmDesc: nm.sit === 'ok' ? nm.completa : '', ncmSit: nm.sit, descricao: x.descricao, dir: x.dir, cp: x.cp, contraparte: x.cp === '*' ? '' : DEST_LBL[x.cp], cfop: x.cfop, natureza: RR.NAT[c.natureza], vItem: x.vItem, vICMS: x.vICMS, linhas: x.n, regra: c.regra ? c.regra.nome : '—', regraId: c.regra ? c.regra.id : '', status: c.status, condicional: c.condicional, cst: c.cst, cClassTrib: c.cClassTrib, reducao: c.tipo === 'reducao' || c.tipo === 'diferimento' ? c.pRedCBS : (c.tipo === 'integral' ? 0 : null), cctXml: xmlC, divergente: xmlC && c.cClassTrib ? !x.cct.has(c.cClassTrib) : false, alternativas: c.alternativas.length, enq: c.enq, tabSit: c.tabela ? c.tabela.sit : '', descOficial: c.oficial ? (c.oficial.nome || c.oficial.descricao) : '' });
+      const nm = RTS_NCM.consultar(x.ncm); out.push({ ncm: x.ncm, grupo: x.grupo || '', ncmDesc: nm.sit === 'ok' ? nm.completa : '', ncmSit: nm.sit, descricao: x.descricao, dir: x.dir, cp: x.cp, contraparte: x.cp === '*' ? '' : DEST_LBL[x.cp], cfop: x.cfop, natureza: RR.NAT[c.natureza], vItem: x.vItem, vICMS: x.vICMS, linhas: x.n, regra: c.regra ? c.regra.nome : '—', regraId: c.regra ? c.regra.id : '', status: c.status, condicional: c.condicional, cst: c.cst, cClassTrib: c.cClassTrib, reducao: c.tipo === 'reducao' || c.tipo === 'diferimento' ? c.pRedCBS : (c.tipo === 'integral' ? 0 : null), cctXml: xmlC, divergente: xmlC && c.cClassTrib ? !x.cct.has(c.cClassTrib) : false, alternativas: c.alternativas.length, enq: c.enq, tabSit: c.tabela ? c.tabela.sit : '', descOficial: c.oficial ? (c.oficial.nome || c.oficial.descricao) : '' });
     }
     return (S.cache.ncmRows = out);
   }
@@ -6567,7 +6575,7 @@ table.t tr.sel td{background:var(--accent-bg)}
       for (const L of sim.linhas) { const k = L.ncm + '|' + L.cfop + '|' + L.dir; const g = m.get(k) || { cbs: 0, ibs: 0, is: 0, base: 0 }; g.cbs += L.cbs; g.ibs += L.ibs; g.is += L.vIS || 0; g.base += L.base; m.set(k, g); }
       const out = rows.map(r => { const g = m.get(r.ncm + '|' + r.cfop + '|' + r.dir) || { cbs: 0, ibs: 0, is: 0, base: 0 }; const reg = S.regras.find(x => x.id === r.regraId); return Object.assign({}, r, { sentido: r.dir === 'S' ? 'Saída' : 'Entrada', fund: reg ? fonteTxt(reg) : '', stLbl: (STATUS_LBL[r.status] || [r.status])[0] + (r.condicional ? ' (condicional)' : ''), base: g.base, cbs: g.cbs, ibs: g.ibs, isv: g.is, xmlSit: r.divergente ? 'divergente' : r.cctXml ? 'confere' : '', enqLbl: CLF.ENQ_LBL[r.enq] || '', tabLbl: CLF.TAB_LBL[r.tabSit] || '' }); });
       const div = out.filter(r => r.divergente).length; if (div) R.avisos.push(div + ' combinação(ões) com cClassTrib do XML diferente do esperado pelo motor.');
-      R.secoes.push({ titulo: 'Classificação por NCM — ' + ano, tipo: 'tabela', cols: [{ k: 'ncm', t: 'NCM' }, { k: 'grupo', t: 'Grupo do produto', v: r => grupoProduto(r.ncm) }, { k: 'descricao', t: 'Descrição' }, { k: 'sentido', t: 'Sentido' }, { k: 'cfop', t: 'CFOP' }, mny('vItem', 'Valor'), { k: 'regra', t: 'Regra' }, { k: 'stLbl', t: 'Status' }, { k: 'cst', t: 'CST' }, { k: 'ncmDesc', t: 'Nomenclatura (NCM)' }, { k: 'cClassTrib', t: 'cClassTrib esperado' }, { k: 'descOficial', t: 'Descrição oficial' }, { k: 'enqLbl', t: 'Classificação' }, { k: 'tabLbl', t: 'Tabela oficial' }, { k: 'cctXml', t: 'cClassTrib XML' }, { k: 'xmlSit', t: 'XML' }, { k: 'reducao', t: 'Redução %', type: 'num' }, { k: 'fund', t: 'Fundamento' }, mny('base', 'Base ' + ano), mny('cbs', 'CBS ' + ano), mny('ibs', 'IBS ' + ano), mny('isv', 'IS ' + ano)], rows: out });
+      R.secoes.push({ titulo: 'Classificação por NCM — ' + ano, tipo: 'tabela', cols: [{ k: 'ncm', t: 'NCM' }, { k: 'grupo', t: 'Grupo do produto', v: r => r.grupo || grupoProduto(r.ncm) }, { k: 'descricao', t: 'Descrição' }, { k: 'sentido', t: 'Sentido' }, { k: 'cfop', t: 'CFOP' }, mny('vItem', 'Valor'), { k: 'regra', t: 'Regra' }, { k: 'stLbl', t: 'Status' }, { k: 'cst', t: 'CST' }, { k: 'ncmDesc', t: 'Nomenclatura (NCM)' }, { k: 'cClassTrib', t: 'cClassTrib esperado' }, { k: 'descOficial', t: 'Descrição oficial' }, { k: 'enqLbl', t: 'Classificação' }, { k: 'tabLbl', t: 'Tabela oficial' }, { k: 'cctXml', t: 'cClassTrib XML' }, { k: 'xmlSit', t: 'XML' }, { k: 'reducao', t: 'Redução %', type: 'num' }, { k: 'fund', t: 'Fundamento' }, mny('base', 'Base ' + ano), mny('cbs', 'CBS ' + ano), mny('ibs', 'IBS ' + ano), mny('isv', 'IS ' + ano)], rows: out });
     } else if (id === 'empresa' || id === 'operacao' || id === 'comparativo') {
       const r = simResult(ano); const T = r.T; const gc = colsRT(ano);
       if (T.valorValidar) R.avisos.push(money(T.valorValidar) + ' das operações estão em enquadramentos "Sem fundamento" — NECESSITA DE VALIDAÇÃO NA LEGISLAÇÃO/TABELA OFICIAL VIGENTE.');
@@ -6676,9 +6684,9 @@ table.t tr.sel td{background:var(--accent-bg)}
     const r = simResult(ano); const m = new Map(); const PL = SM.PAPEL_LBL;
     for (const L of r.linhas) {
       const mes = (L.data || '').slice(0, 7); const st = CLF.situacao(L);
-      const k = [mes, L.estab, L.dir, L.papel, L.diferido ? 1 : 0, L.nat, L.cfop, L.ncm, L.regraId, L.cClassTrib, L.cst, st.k, L.partUF].join('|');
+      const k = [mes, L.estab, L.dir, L.papel, L.diferido ? 1 : 0, L.nat, L.cfop, L.ncm, L.regraId, L.cClassTrib, L.cst, st.k, L.partUF, L.grupo || ''].join('|');
       let g = m.get(k);
-      if (!g) { g = { mes, estab: L.estab ? fmtDoc(L.estab) + (efdNome(L.estab) ? ' · ' + efdNome(L.estab) : '') : L.fonte === 'Planilha' ? 'Planilha de operações' : 'Somente XML', sent: L.dir === 'S' ? 'Saída' : 'Entrada', apur: L.diferido ? 'Diferido' : (PL[L.papel] || L.papel), nat: RTS_RULES.NAT[L.nat] || L.nat || '', cfop: L.cfop || '', ncm: L.ncm || '', grupo: grupoProduto(L.ncm || (L.nbs ? 'NBS' : '')), desc: L.descricao || '', regra: L.regra || '', cct: L.cClassTrib || '', cst: L.cst || '', sit: st.lbl, uf: L.partUF || '', red: L.pRed || 0, n: 0, valor: 0, base: 0, cbsD: 0, ibsD: 0, is: 0, cbsC: 0, ibsC: 0 }; m.set(k, g); }
+      if (!g) { g = { mes, estab: L.estab ? fmtDoc(L.estab) + (efdNome(L.estab) ? ' · ' + efdNome(L.estab) : '') : L.fonte === 'Planilha' ? 'Planilha de operações' : 'Somente XML', sent: L.dir === 'S' ? 'Saída' : 'Entrada', apur: L.diferido ? 'Diferido' : (PL[L.papel] || L.papel), nat: RTS_RULES.NAT[L.nat] || L.nat || '', cfop: L.cfop || '', ncm: L.ncm || '', grupo: L.grupo || grupoProduto(L.ncm || (L.nbs ? 'NBS' : '')), desc: L.descricao || '', regra: L.regra || '', cct: L.cClassTrib || '', cst: L.cst || '', sit: st.lbl, uf: L.partUF || '', red: L.pRed || 0, n: 0, valor: 0, base: 0, cbsD: 0, ibsD: 0, is: 0, cbsC: 0, ibsC: 0 }; m.set(k, g); }
       g.n++; g.valor += L.vItem || 0;
       // crédito: compras + devoluções de venda (entrada) · débito: vendas + devoluções de compra (saída)
       if (L.papel === 'credito' || L.papel === 'estorno_debito') { g.cbsC += L.cbs || 0; g.ibsC += L.ibs || 0; }
@@ -6949,5 +6957,5 @@ table.t tr.sel td{background:var(--accent-bg)}
 </script>
 <script>/* PWA: só quando servido por http(s) (GitHub Pages); no arquivo local não faz nada */
 (function(){if(!('serviceWorker' in navigator)||location.protocol==='file:')return;navigator.serviceWorker.register('sw.js').catch(function(){});
-var V='2026.11.18-1228';fetch('versao.json?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){if(j&&j.versao&&j.versao!==V){var b=document.createElement('div');b.style.cssText='position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:99999;background:#0b1a24;color:#e6f1f5;border:1px solid #2bc4ae;border-radius:10px;padding:10px 14px;font:13px system-ui;box-shadow:0 8px 30px rgba(0,0,0,.35)';b.innerHTML='Nova versão disponível ('+j.versao+'). <a href="#" style="color:#2bc4ae;font-weight:600;margin-left:8px">Atualizar</a>';b.querySelector('a').onclick=function(e){e.preventDefault();try{window.RTS_APP&&RTS_APP.salvarAgora&&RTS_APP.salvarAgora()}catch(_){}(window.caches?caches.keys().then(function(k){return Promise.all(k.map(function(x){return caches.delete(x)}))}):Promise.resolve()).finally(function(){location.reload()})};document.body.appendChild(b)}}).catch(function(){});})();</script></body>
+var V='2026.11.18-1239';fetch('versao.json?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){if(j&&j.versao&&j.versao!==V){var b=document.createElement('div');b.style.cssText='position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:99999;background:#0b1a24;color:#e6f1f5;border:1px solid #2bc4ae;border-radius:10px;padding:10px 14px;font:13px system-ui;box-shadow:0 8px 30px rgba(0,0,0,.35)';b.innerHTML='Nova versão disponível ('+j.versao+'). <a href="#" style="color:#2bc4ae;font-weight:600;margin-left:8px">Atualizar</a>';b.querySelector('a').onclick=function(e){e.preventDefault();try{window.RTS_APP&&RTS_APP.salvarAgora&&RTS_APP.salvarAgora()}catch(_){}(window.caches?caches.keys().then(function(k){return Promise.all(k.map(function(x){return caches.delete(x)}))}):Promise.resolve()).finally(function(){location.reload()})};document.body.appendChild(b)}}).catch(function(){});})();</script></body>
 </html>
